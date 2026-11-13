@@ -128,31 +128,6 @@ pub(super) fn patch_settings_from_raw(
     Ok(cabin_core::PatchManifestSettings { entries })
 }
 
-/// Convert a raw `[system-provided]` table into typed
-/// [`cabin_core::SystemProvidedSettings`].
-pub(super) fn system_provided_from_raw(
-    raw: BTreeMap<String, crate::raw::RawSystemProvider>,
-) -> Result<cabin_core::SystemProvidedSettings, ManifestError> {
-    let mut entries = BTreeMap::new();
-    for (name, row) in raw {
-        let package = PackageName::new(name).map_err(ManifestError::Validation)?;
-        let targets = row.targets.map(|rows| {
-            rows.into_iter()
-                .map(|(target, row)| (target, row.pkg_config))
-                .collect()
-        });
-        let provider =
-            cabin_core::SystemProvider::new(row.pkg_config, targets).map_err(|source| {
-                ManifestError::InvalidSystemProvider {
-                    package: package.as_str().to_owned(),
-                    source,
-                }
-            })?;
-        entries.insert(package, provider);
-    }
-    Ok(cabin_core::SystemProvidedSettings { entries })
-}
-
 pub(super) fn features_from_raw(mut raw: BTreeMap<String, Vec<String>>) -> Features {
     let default = raw
         .remove(cabin_core::DEFAULT_FEATURE_KEY)

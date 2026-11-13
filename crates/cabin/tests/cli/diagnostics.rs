@@ -213,3 +213,75 @@ cxx-standard = "c++17"
         String::from_utf8_lossy(&assertion.get_output().stderr)
     );
 }
+
+/// A file that still carries `[system-provided]` asks for a library
+/// from the system.  Reading past the table would build that library
+/// from its sources instead, with no word of the change.
+#[test]
+fn the_removed_system_provided_table_stops_every_file_that_carries_it() {
+    const PACKAGE: &str = r#"[package]
+name = "app"
+version = "0.1.0"
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+c-standard = "c11"
+"#;
+    const TABLE: &str = r#"
+[system-provided."acme/zlib"]
+pkg-config = "zlib"
+"#;
+    let dir = TempDir::new().unwrap();
+    let write = |path: &str, text: &str| {
+        assert_fs::fixture::ChildPath::new(dir.path().join(path))
+            .write_str(text)
+            .unwrap();
+    };
+    write("root/cabin.toml", &format!("{PACKAGE}{TABLE}"));
+    write(
+        "workspace/cabin.toml",
+        r#"[workspace]
+members = ["app"]
+"#,
+    );
+    write("workspace/app/cabin.toml", &format!("{PACKAGE}{TABLE}"));
+    write("configured/cabin.toml", PACKAGE);
+    write("configured/src/main.c", "int main(void) { return 0; }\n");
+    write("configured/config.toml", TABLE);
+
+    for project in ["root", "workspace"] {
+        let assertion = cabin()
+            .args(["metadata", "--color", "never", "--manifest-path"])
+            .arg(dir.path().join(project).join("cabin.toml"))
+            .assert()
+            .failure();
+        // The helper drops the spaces along with the line wrapping.
+        let stderr = stderr_with_wrapping_joined(&assertion);
+        for expected in [
+            "cabin::manifest::system_provided_removed",
+            "`[system-provided]`isnolongersupported",
+            "help:removethetable",
+        ] {
+            assert!(stderr.contains(expected), "{project}: {stderr}");
+        }
+    }
+
+    let configured = || {
+        let mut cmd = cabin();
+        cmd.args(["metadata", "--color", "never", "--manifest-path"])
+            .arg(dir.path().join("configured/cabin.toml"));
+        cmd
+    };
+    configured().assert().success();
+    let assertion = configured()
+        .env_remove("CABIN_NO_CONFIG")
+        .env("CABIN_CONFIG", dir.path().join("configured/config.toml"))
+        .assert()
+        .failure();
+    let stderr = stderr_with_wrapping_joined(&assertion);
+    assert!(
+        stderr.contains("configtable`system-provided`isnolongersupported;removeit"),
+        "{stderr}"
+    );
+}

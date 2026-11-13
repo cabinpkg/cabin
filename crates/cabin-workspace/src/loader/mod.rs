@@ -65,14 +65,13 @@ pub fn load_workspace(manifest_path: impl AsRef<Path>) -> Result<PackageGraph, W
         manifest_path,
         &[],
         &[],
-        &[],
         &RegistryPolicy::Strict,
         &BTreeSet::new(),
     )
 }
 
 /// Options bag for the workspace loader.  Threads custom policy
-/// (registry / patches / system packages / dev-dep activation) through
+/// (registry / patches / dev-dep activation) through
 /// a single call.
 #[derive(Debug, Clone)]
 pub struct WorkspaceLoadOptions<'a> {
@@ -80,13 +79,6 @@ pub struct WorkspaceLoadOptions<'a> {
     pub registry: &'a [RegistryPackageSource],
     /// Active patches (resolved by [`crate::patch`]).
     pub patches: &'a [PatchedPackageSource],
-    /// Packages the build takes from the system instead of fetching
-    /// them, synthesized by the caller rather than read from a
-    /// manifest.  Each loads as a registry package, and versioned
-    /// dependencies of its name link to it.  Its own dependencies go
-    /// through `registry_policy` like a registry package's, so the
-    /// caller declares only those it supplies.
-    pub system: &'a [cabin_core::Package],
     /// How the loader treats a missing-registry edge: every parent
     /// is strict by default; pre-resolution loads use
     /// [`RegistryPolicy::StrictFor`] to scope enforcement (or
@@ -101,7 +93,7 @@ pub struct WorkspaceLoadOptions<'a> {
 }
 
 /// How the loader treats a versioned dependency edge whose name is
-/// in none of `registry`, `patches`, and `system`.  The policy applies
+/// in neither `registry` nor `patches`.  The policy applies
 /// only when at least one of them is supplied; with none, every
 /// versioned edge is skipped.  A pre-resolution load carries no
 /// registry yet but may carry patches; [`RegistryPolicy::StrictFor`]
@@ -151,7 +143,6 @@ pub fn load_workspace_with_options(
         manifest_path,
         options.registry,
         options.patches,
-        options.system,
         &options.registry_policy,
         options.include_dev_for,
     )
@@ -163,7 +154,6 @@ fn load_workspace_inner(
     manifest_path: impl AsRef<Path>,
     registry: &[RegistryPackageSource],
     patches: &[PatchedPackageSource],
-    system: &[cabin_core::Package],
     policy: &RegistryPolicy<'_>,
     include_dev_for: &BTreeSet<String>,
 ) -> Result<PackageGraph, WorkspaceError> {
@@ -195,7 +185,7 @@ fn load_workspace_inner(
         workspace_standards,
     } = scan_workspace_root(&root_manifest, &root_dir, &manifest_path)?;
 
-    let registry_lookup = build_registry_lookup(registry, patches, system, &manifest_path)?;
+    let registry_lookup = build_registry_lookup(registry, patches)?;
 
     let mut to_load = initial_load_queue(&primary_manifest_paths, registry, patches)?;
     let root_manifest_path = manifest_path.clone();
@@ -204,26 +194,6 @@ fn load_workspace_inner(
         policy,
         include_dev_for,
     };
-    // Every path a system package's dependencies resolve to is a
-    // registry or patch manifest already queued, or another system
-    // package indexed here.
-    for package in system {
-        let manifest_path = system_manifest_path(&root_manifest_path, &package.name);
-        let manifest_dir = manifest_path
-            .parent()
-            .expect("a joined path has a parent")
-            .to_path_buf();
-        let dep_paths = resolve_dep_paths(&ctx, package, &manifest_path, &manifest_dir)?;
-        loader
-            .manifest_index
-            .insert(manifest_path.clone(), loader.packages.len());
-        loader.packages.push(LoadedPackage {
-            package: package.clone(),
-            manifest_path,
-            manifest_dir,
-            dep_paths,
-        });
-    }
     while let Some(manifest_path) = to_load.pop() {
         if loader.manifest_index.contains_key(&manifest_path) {
             continue;
@@ -398,16 +368,14 @@ fn scan_workspace_root(
     })
 }
 
-/// Name / canonical-path lookup maps for registry, patch, and system
+/// Name / canonical-path lookup maps for registry and patch
 /// sources, canonicalizing paths so the dedup-by-canonical-path
 /// steps see a consistent value.  Patches contribute the same
 /// `(name, version, manifest_path)` information as registry entries
-/// but ultimately produce local-kind packages; a system package's
-/// path is [`system_manifest_path`].
+/// but ultimately produce local-kind packages.
 struct RegistryLookup<'a> {
-    /// name -> canonical manifest path (registry entries, patches, and
-    /// system packages); the loader resolves versioned deps through
-    /// this.
+    /// name -> canonical manifest path (registry entries and
+    /// patches); the loader resolves versioned deps through this.
     by_name: HashMap<&'a str, PathBuf>,
     /// Canonical manifest path -> the pinned entry, so loading can
     /// compare the actual manifest contents against what the
@@ -420,13 +388,11 @@ struct RegistryEntry<'a> {
     version: &'a semver::Version,
     /// Came from `patches`: stays `PackageKind::Local`.
     is_patch: bool,
-    /// Came from `system`: no file backs the manifest path.
-    is_system: bool,
 }
 
 impl RegistryLookup<'_> {
     /// Whether `manifest_path` came from an untrusted registry
-    /// archive or is a system package's: the one predicate behind the
+    /// archive: the one predicate behind the
     /// registry-only guards and `PackageKind::Registry`.  Patches are
     /// user-controlled local working copies, so they never count.
     fn is_registry(&self, manifest_path: &Path) -> bool {
@@ -434,31 +400,11 @@ impl RegistryLookup<'_> {
             .get(manifest_path)
             .is_some_and(|entry| !entry.is_patch)
     }
-
-    /// Whether `manifest_path` names a system package, which no file
-    /// backs.
-    fn is_system(&self, manifest_path: &Path) -> bool {
-        self.entries
-            .get(manifest_path)
-            .is_some_and(|entry| entry.is_system)
-    }
-}
-
-/// The path the graph records for the system package `name`, which
-/// diagnostics show but nothing reads.  It lies below the root
-/// manifest, a regular file, so no manifest path the loader
-/// canonicalizes can equal it; distinct names give distinct paths.
-fn system_manifest_path(root_manifest_path: &Path, name: &PackageName) -> PathBuf {
-    let mut path = root_manifest_path.to_path_buf();
-    path.extend(name.path_components());
-    path.join("cabin.toml")
 }
 
 fn build_registry_lookup<'a>(
     registry: &'a [RegistryPackageSource],
     patches: &'a [PatchedPackageSource],
-    system: &'a [cabin_core::Package],
-    root_manifest_path: &Path,
 ) -> Result<RegistryLookup<'a>, WorkspaceError> {
     let mut by_name: HashMap<&str, PathBuf> = HashMap::new();
     let mut entries: HashMap<PathBuf, RegistryEntry<'a>> = HashMap::new();
@@ -471,7 +417,6 @@ fn build_registry_lookup<'a>(
                 name: &entry.name,
                 version: &entry.version,
                 is_patch: false,
-                is_system: false,
             },
         );
     }
@@ -498,22 +443,6 @@ fn build_registry_lookup<'a>(
                 name: &entry.name,
                 version: &entry.version,
                 is_patch: true,
-                is_system: false,
-            },
-        );
-    }
-    // A registry or patch entry sharing a system package's name still
-    // loads, and the duplicate-name check rejects the pair.
-    for package in system {
-        let path = system_manifest_path(root_manifest_path, &package.name);
-        by_name.insert(package.name.as_str(), path.clone());
-        entries.insert(
-            path,
-            RegistryEntry {
-                name: &package.name,
-                version: &package.version,
-                is_patch: false,
-                is_system: true,
             },
         );
     }
@@ -571,12 +500,6 @@ fn reject_member_manifest_overrides(
     }
     if !package.patches.is_empty() {
         return Err(WorkspaceError::MemberDeclaresPatches {
-            package: package.name.as_str().to_owned(),
-            path: manifest_path.to_path_buf(),
-        });
-    }
-    if !package.system_provided.is_empty() {
-        return Err(WorkspaceError::MemberDeclaresSystemProvided {
             package: package.name.as_str().to_owned(),
             path: manifest_path.to_path_buf(),
         });
@@ -740,7 +663,7 @@ fn resolve_dep_paths(
 
 /// Resolve one dependency declaration to the canonical manifest
 /// path of its source package.  Returns `Ok(None)` for a versioned
-/// dep the loader skips: no registry, patch, or system source was
+/// dep the loader skips: no registry or patch source was
 /// supplied, an optional dep resolution left out, or a missing entry
 /// under a parent the policy does not treat as strict.
 fn resolve_dep_manifest_path(
@@ -761,7 +684,7 @@ fn resolve_dep_manifest_path(
             canonicalize(&candidate)?
         }
         DependencySource::Version(_) => {
-            // No registry, patch, or system source: this load
+            // No registry or patch source: this load
             // materializes no versioned dependency.
             if ctx.registry.by_name.is_empty() {
                 return Ok(None);
@@ -803,8 +726,7 @@ fn resolve_dep_manifest_path(
 
 /// Verify each dependency key matches the actual package name of
 /// the manifest it resolved to.  We peek at the dep's manifest
-/// before fully loading it.  A system package has no manifest and is
-/// found by its name.
+/// before fully loading it.
 fn verify_dep_path_names(
     dep_paths: &[DepPath],
     registry: &RegistryLookup<'_>,
@@ -815,9 +737,6 @@ fn verify_dep_path_names(
         ..
     } in dep_paths
     {
-        if registry.is_system(dep_manifest_path) {
-            continue;
-        }
         let dep_parsed = parse_manifest(dep_manifest_path)?;
         let actual = dep_parsed.package.as_ref().ok_or_else(|| {
             if registry.entries.contains_key(dep_manifest_path) {

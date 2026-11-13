@@ -34,7 +34,6 @@ pub mod registry;
 pub mod source_language;
 pub mod source_replacement;
 pub mod standard_compatibility;
-pub mod system_provided;
 pub mod term_color;
 pub mod term_text;
 pub mod term_verbosity;
@@ -110,9 +109,6 @@ pub use source_replacement::{
 };
 pub use standard_compatibility::{
     BoundedRange, IncompatibleStandards, Requirement, UnknownIncompatibleStandards,
-};
-pub use system_provided::{
-    SystemProvidedSettings, SystemProvider, SystemProviderError, SystemTargetProvider,
 };
 pub use term_color::{ColorChoice, ColorEnvError, InvalidColorChoice};
 pub use term_text::{

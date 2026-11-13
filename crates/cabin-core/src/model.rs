@@ -1195,13 +1195,6 @@ pub struct Package {
     /// metadata.
     #[serde(default, skip_serializing_if = "PatchManifestSettings::is_empty")]
     pub patches: PatchManifestSettings,
-    /// Workspace-root `[system-provided]` policy.  Present only on the
-    /// workspace root, like `patches`, and never published.
-    #[serde(
-        default,
-        skip_serializing_if = "crate::SystemProvidedSettings::is_empty"
-    )]
-    pub system_provided: crate::SystemProvidedSettings,
     /// Optional `[package.upstream]` provenance declaration.  Inert
     /// for consumers - nothing in resolution, fetching, or building
     /// reads it; the registry's external verifier checks it against
@@ -1304,7 +1297,6 @@ impl Package {
             language: LanguageStandardSettings::default(),
             compiler_wrapper: None,
             patches: PatchManifestSettings::default(),
-            system_provided: crate::SystemProvidedSettings::default(),
             upstream: None,
             license: None,
             include: Vec::new(),
@@ -1391,13 +1383,6 @@ impl Package {
     #[must_use]
     pub fn with_patches(mut self, patches: PatchManifestSettings) -> Self {
         self.patches = patches;
-        self
-    }
-
-    /// Attach the workspace-root `[system-provided]` policy.
-    #[must_use]
-    pub fn with_system_provided(mut self, system_provided: crate::SystemProvidedSettings) -> Self {
-        self.system_provided = system_provided;
         self
     }
 

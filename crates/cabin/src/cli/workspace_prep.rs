@@ -61,7 +61,7 @@ fn load(manifest_path: &Path, no_patches: bool, user_config_only: bool) -> Resul
     let patches =
         crate::cli::patch::load_active_patches(&unpatched, &effective_config, no_patches)?;
     let patched_sources = patches.workspace_sources();
-    let mut graph = if patched_sources.is_empty() {
+    let graph = if patched_sources.is_empty() {
         unpatched
     } else {
         cabin_workspace::load_workspace_with_options(
@@ -69,7 +69,6 @@ fn load(manifest_path: &Path, no_patches: bool, user_config_only: bool) -> Resul
             &cabin_workspace::WorkspaceLoadOptions {
                 registry: &[],
                 patches: &patched_sources,
-                system: &[],
                 registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&BTreeSet::new()),
                 include_dev_for: &BTreeSet::new(),
             },
@@ -79,17 +78,6 @@ fn load(manifest_path: &Path, no_patches: bool, user_config_only: bool) -> Resul
     // contribute version requirements the first pass could not see.
     let active_patches =
         crate::cli::patch::load_active_patches(&graph, &effective_config, no_patches)?;
-    // Every consumer reads the policy off this graph's root settings.
-    let patched_names = active_patches.owned_patched_names();
-    crate::cli::system_provided::apply_config_entries(
-        &mut graph,
-        &effective_config,
-        &patched_names,
-    );
-    crate::cli::system_provided::reject_patched(
-        &graph.root_settings.system_provided,
-        &patched_names,
-    )?;
     Ok(WorkspacePrep {
         effective_config,
         active_patches,

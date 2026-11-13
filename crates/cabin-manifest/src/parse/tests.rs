@@ -3617,78 +3617,33 @@ fn patch_table_accepts_scoped_package_key() {
     assert!(package.patches.entries.contains_key(&key));
 }
 
-/// The module reaches pkg-config's argv, so one spelled like an option
-/// is refused.
+/// A manifest that still carries the removed table is refused, with a
+/// package or as a pure workspace root, whatever the table holds: the
+/// build would otherwise fetch and compile what it asks to take from
+/// the system.
 #[test]
-fn system_provided_table_rejects_an_option_shaped_module() {
-    let err = parse_manifest_str(
+fn the_removed_system_provided_table_is_refused() {
+    for manifest in [
         r#"
             [package]
             name = "app"
             version = "0.1.0"
 
             [system-provided."acme/zlib"]
-            pkg-config = "--define-variable=prefix=/tmp"
+            pkg-config = "zlib"
         "#,
-    )
-    .unwrap_err();
-    assert!(
-        matches!(&err, ManifestError::InvalidSystemProvider { package, .. } if package == "acme/zlib"),
-        "{err:?}"
-    );
-}
+        r#"
+            [workspace]
+            members = ["app"]
 
-/// An entry names one module or a module per target, never both or
-/// neither; a target's module and name are validated like the sole one.
-#[test]
-fn system_provided_entry_takes_one_module_or_one_per_target() {
-    let parse = |entry: &str| {
-        parse_manifest_str(&format!(
-            r#"[package]
-name = "app"
-version = "0.1.0"
-
-[system-provided."acme/tls"]
-{entry}"#
-        ))
-    };
-    let package = parse(
-        "targets.ssl = { pkg-config = \"libssl\" }\ntargets.crypto = { pkg-config = \"libcrypto\" }\n",
-    )
-    .unwrap()
-    .package
-    .unwrap();
-    let provider =
-        &package.system_provided.entries[&cabin_core::PackageName::new("acme/tls").unwrap()];
-    assert_eq!(provider.module_for("crypto"), Some("libcrypto"));
-    assert_eq!(provider.module_for("ssl"), Some("libssl"));
-
-    for entry in [
-        "pkg-config = \"tls\"\ntargets.ssl = { pkg-config = \"libssl\" }\n",
-        "targets = {}\n",
-        "pkg-config = \"tls\"\ntargets = {}\n",
-        "",
+            [system-provided]
+            anything = 1
+        "#,
     ] {
-        let err = parse(entry).unwrap_err();
+        let err = parse_manifest_str(manifest).unwrap_err();
         assert!(
-            matches!(
-                &err,
-                ManifestError::InvalidSystemProvider {
-                    package,
-                    source: cabin_core::SystemProviderError::Shape,
-                } if package == "acme/tls"
-            ),
-            "{entry}: {err:?}"
-        );
-    }
-    for entry in [
-        "targets.ssl = { pkg-config = \"--libs\" }\n",
-        "targets.\"../ssl\" = { pkg-config = \"libssl\" }\n",
-    ] {
-        let err = parse(entry).unwrap_err();
-        assert!(
-            matches!(&err, ManifestError::InvalidSystemProvider { package, .. } if package == "acme/tls"),
-            "{entry}: {err:?}"
+            matches!(err, ManifestError::SystemProvidedRemoved),
+            "{err:?}"
         );
     }
 }

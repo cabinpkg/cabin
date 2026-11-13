@@ -19,8 +19,24 @@
 //! `ignore-interface-standard = true` dependency override, which
 //! downgrades exactly that edge to an unchecked-edge note.
 
-use super::system_provided::publish;
 use super::*;
+
+/// Write `files` under `<root>/<dir>` and publish the package there into
+/// `<root>/registry`.
+fn publish(root: &Path, dir: &str, files: &[(&str, &str)]) {
+    for (path, body) in files {
+        assert_fs::fixture::ChildPath::new(root.join(dir).join(path))
+            .write_str(body)
+            .unwrap();
+    }
+    cabin()
+        .args(["publish", "--manifest-path"])
+        .arg(root.join(dir).join("cabin.toml"))
+        .arg("--registry-dir")
+        .arg(root.join("registry"))
+        .assert()
+        .success();
+}
 
 /// Collapse miette's graphical wrapping so failure messages stay
 /// readable: drop the box-drawing gutter, normalize Windows path

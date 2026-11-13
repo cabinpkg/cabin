@@ -74,7 +74,7 @@ pub(crate) fn augment_build_flags_with_system_deps(
 }
 
 /// The pkg-config that probes libraries for `platform`, checked to run.
-pub(crate) fn pkg_config_for(platform: &TargetPlatform) -> Result<PkgConfigTool> {
+fn pkg_config_for(platform: &TargetPlatform) -> Result<PkgConfigTool> {
     let tool = PkgConfigTool::from_env(|key| std::env::var_os(key));
     // A plain pkg-config reports the build machine's libraries, which
     // must not link into a build for another machine.  A triple's `env`

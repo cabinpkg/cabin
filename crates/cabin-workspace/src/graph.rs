@@ -16,7 +16,6 @@ pub struct RootSettings {
     pub toolchain: ToolchainSettings,
     pub compiler_wrapper: Option<CompilerWrapperRequest>,
     pub patches: PatchManifestSettings,
-    pub system_provided: cabin_core::SystemProvidedSettings,
     pub allow_standard_header_shadowing: Vec<PackageName>,
 }
 
@@ -27,7 +26,6 @@ impl From<cabin_manifest::RootSettings> for RootSettings {
             toolchain: value.toolchain,
             compiler_wrapper: value.compiler_wrapper,
             patches: value.patches,
-            system_provided: value.system_provided,
             allow_standard_header_shadowing: value.allow_standard_header_shadowing,
         }
     }
@@ -297,8 +295,7 @@ pub enum PackageKind {
     /// dependencies declared by a [`PackageKind::Registry`] package.
     Local,
     /// A registry package whose source archive was already fetched and
-    /// extracted into the artifact cache, or one the build takes from the
-    /// system, which Cabin synthesizes.  Untrusted: its own `[profile]`
+    /// extracted into the artifact cache.  Untrusted: its own `[profile]`
     /// `cflags` / `cxxflags` / `ldflags` are dropped during build-flag
     /// resolution.
     Registry,

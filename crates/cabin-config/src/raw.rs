@@ -32,25 +32,6 @@ pub(crate) struct RawConfigSourceReplacement {
     pub(crate) index_url: Option<String>,
 }
 
-/// One row in a config file's `[system-provided]` table, the
-/// manifest table's shape.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct RawConfigSystemProvider {
-    #[serde(default, rename = "pkg-config")]
-    pub(crate) pkg_config: Option<String>,
-    #[serde(default)]
-    pub(crate) targets: Option<BTreeMap<String, RawConfigSystemTargetProvider>>,
-}
-
-/// One `targets.<name>` row of a `[system-provided]` entry.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct RawConfigSystemTargetProvider {
-    #[serde(rename = "pkg-config")]
-    pub(crate) pkg_config: String,
-}
-
 // ---------------------------------------------------------------
 // Top-level
 // ---------------------------------------------------------------
@@ -59,7 +40,9 @@ pub(crate) struct RawConfigSystemTargetProvider {
 ///
 /// Unknown top-level keys land in the flattened `extra` map, so
 /// validation can reject credential keys as
-/// [`crate::ConfigParseError::UnsupportedAuthKey`] and everything
+/// [`crate::ConfigParseError::UnsupportedAuthKey`], the removed
+/// `system-provided` table as
+/// [`crate::ConfigParseError::SystemProvidedRemoved`], and everything
 /// else as [`crate::ConfigParseError::UnknownTopLevelTable`], whose
 /// message lists the supported tables.
 ///
@@ -90,8 +73,6 @@ pub(crate) struct RawConfig {
     pub(crate) patch: Option<BTreeMap<String, RawConfigPatch>>,
     #[serde(default, rename = "source-replacement")]
     pub(crate) source_replacement: Option<BTreeMap<String, RawConfigSourceReplacement>>,
-    #[serde(default, rename = "system-provided")]
-    pub(crate) system_provided: Option<BTreeMap<String, RawConfigSystemProvider>>,
     /// `[runner]`: `<triple> = ["program", "arg", ...]`.
     #[serde(default)]
     pub(crate) runner: Option<BTreeMap<String, Vec<String>>>,

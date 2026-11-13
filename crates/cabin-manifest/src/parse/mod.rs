@@ -16,7 +16,7 @@ use self::build::compiler_wrapper_request_from_raw;
 use self::dependency::route_dependency_from_raw;
 use self::profile::{
     build_flags_decl_from_raw_ref, features_from_raw, patch_settings_from_raw, profiles_from_raw,
-    system_provided_from_raw, toolchain_decl_from_raw_ref,
+    toolchain_decl_from_raw_ref,
 };
 use self::target::{
     RawConditionalTarget, attach_conditional_sources, is_cfg_expression,
@@ -57,11 +57,6 @@ pub struct RootSettings {
         skip_serializing_if = "cabin_core::PatchManifestSettings::is_empty"
     )]
     pub patches: cabin_core::PatchManifestSettings,
-    #[serde(
-        default,
-        skip_serializing_if = "cabin_core::SystemProvidedSettings::is_empty"
-    )]
-    pub system_provided: cabin_core::SystemProvidedSettings,
     /// `[standard-header-shadowing] allow`: registry packages whose
     /// include dirs may hold files named like standard headers.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -74,7 +69,6 @@ impl RootSettings {
             && self.toolchain.is_empty()
             && self.compiler_wrapper.is_none()
             && self.patches.is_empty()
-            && self.system_provided.is_empty()
             && self.allow_standard_header_shadowing.is_empty()
     }
 }
@@ -210,7 +204,9 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
     } = raw;
     let (profile_flags, profile) = split_profile_table(profile);
     let patches = patch_settings_from_raw(patch)?;
-    let system_provided = system_provided_from_raw(system_provided)?;
+    if system_provided.is_some() {
+        return Err(ManifestError::SystemProvidedRemoved);
+    }
     let profiles = profiles_from_raw(profile)?;
     let toolchain_decl = toolchain
         .as_ref()
@@ -273,7 +269,6 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
         toolchain: toolchain_settings.clone(),
         compiler_wrapper: compiler_wrapper.clone(),
         patches: patches.clone(),
-        system_provided: system_provided.clone(),
         allow_standard_header_shadowing: standard_header_shadowing
             .map(|table| table.allow)
             .unwrap_or_default(),
@@ -295,7 +290,6 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
             build_general: build_decl,
             compiler_wrapper,
             patches,
-            system_provided,
         })?)
     } else {
         // No [package]: a buildable [target.*] table has no package to belong to.
@@ -443,7 +437,6 @@ struct ProjectFromRawInput {
     build_general: cabin_core::ProfileFlags,
     compiler_wrapper: Option<cabin_core::CompilerWrapperRequest>,
     patches: cabin_core::PatchManifestSettings,
-    system_provided: cabin_core::SystemProvidedSettings,
 }
 
 #[allow(clippy::too_many_lines)] // one independent validation per `[package]` field
@@ -459,7 +452,6 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
         build_general,
         compiler_wrapper,
         patches,
-        system_provided,
     } = input;
     let RawPackage {
         name,
@@ -559,7 +551,6 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
     .with_language(language)
     .with_compiler_wrapper(compiler_wrapper)
     .with_patches(patches)
-    .with_system_provided(system_provided)
     .with_upstream(upstream_model)
     .with_license(license)
     .with_include(include.into_iter().map(camino::Utf8PathBuf::from).collect()))

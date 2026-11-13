@@ -44,9 +44,6 @@ pub struct EffectiveConfig {
     /// Active config-derived source replacements keyed by the
     /// original [`cabin_core::SourceLocator`].
     pub source_replacements: SourceReplacementSettings,
-    /// `[system-provided]` entries keyed by package name.
-    /// Higher-priority files override lower files on overlap.
-    pub system_provided: BTreeMap<PackageName, SourcedValue<cabin_core::SystemProvider>>,
     /// `[runner]` entries keyed by target triple.  Higher-priority
     /// files override lower files on overlap.
     pub runners: BTreeMap<String, SourcedValue<Vec<String>>>,
@@ -381,11 +378,6 @@ fn apply_parsed(
                 base: base.to_path_buf(),
             },
         );
-    }
-    for (package, provider) in &parsed.system_provided {
-        effective
-            .system_provided
-            .insert(package.clone(), SourcedValue::new(provider.clone(), source));
     }
     for (triple, runner) in &parsed.runners {
         effective
