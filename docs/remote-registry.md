@@ -391,7 +391,7 @@ Packages appear in bytewise name order, each one's versions in descending SemVer
 `latest` is the greatest version without a pre-release tag, the one a `*` requirement selects, or
 the greatest pre-release when a package has nothing else.  Each version carries its served
 packaging `revision` and, when its stored index entry has them, that entry's `dependencies`,
-`dev-dependencies`, `system-dependencies`, and `features` verbatim, plus the `url` and `checksum`
+`dev-dependencies`, and `features` verbatim, plus the `url` and `checksum`
 of its `upstream` block; nothing else of the entry.  The route is admitted like the package documents: during the private alpha an
 anonymous request gets the uniform private-alpha `401`.
 
@@ -446,12 +446,12 @@ Server-side behavior is part of the contract:
 
 - **Validation.**  The server validates the framing (the whole body is capped at 64 MiB and the
   metadata frame at 1 MiB, both refused before anything is hashed or parsed), parses the metadata under the index schema
-  (`schema` values other than `1` are refused - a document the
+  (an unknown top-level key is refused, the `system-dependencies` an older Cabin wrote among them,
+  and so are `schema` values other than `1` - a document the
   [verifier](#the-verifiers-checks) cannot judge must never enter the pending queue), requires
   the URL's `<scope>/<name>` / `<version>` segments to match the metadata (the metadata's `name` field carries the full `<scope>/<name>` string), requires every key of the
   metadata's `dependencies`, `dev-dependencies`, and `build-dependencies` maps to be a canonical `<scope>/<name>`
-  name, neither part a Windows device name (`system-dependencies` is exempt - its keys name system packages, not registry
-  packages), requires a declared `build-script` to be `"build.c"` or `"build.cpp"`, requires a declared `upstream` provenance block to pass a lexical mirror of the
+  name, neither part a Windows device name, requires a declared `build-script` to be `"build.c"` or `"build.cpp"`, requires a declared `upstream` provenance block to pass a lexical mirror of the
   manifest's provenance rules (credential-free HTTPS URL, `sha256:`-prefixed 64-hex `checksum`,
   `"tar.gz"` / `"zip"` format, single-component `strip-prefix`, non-escaping copy paths,
   non-escaping `patches`
