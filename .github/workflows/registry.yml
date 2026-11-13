@@ -371,8 +371,7 @@ jobs:
   # deploy credential: build scripts and proc-macros run only here
   # (api/docs/runbook.md, "Deploy credential boundary").
   build-registry-worker:
-    # PROBE (temporary, removed before merge): also on pull requests.
-    if: (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && needs.changes.outputs.registry == 'true'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.registry == 'true'
     needs: changes
     runs-on: ubuntu-26.04
     outputs:
@@ -469,49 +468,6 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
-
-  # PROBE (temporary, removed before merge): deploy-registry's steps up
-  # to the upload, on a pull request, with no credential and a dry run
-  # in place of the deploy.
-  probe-deploy-paths:
-    if: github.event_name == 'pull_request'
-    needs: build-registry-worker
-    runs-on: ubuntu-26.04
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Install wrangler
-        working-directory: api
-        run: npm ci --ignore-scripts
-
-      - uses: actions/download-artifact@v8.0.2
-        with:
-          name: registry-worker-${{ github.run_attempt }}
-          path: api/build
-
-      - name: Verify the artifact digest
-        shell: bash
-        working-directory: api/build
-        env:
-          EXPECTED: ${{ needs.build-registry-worker.outputs.digest }}
-        run: |
-          test -z "$(find . ! -type f ! -type d -print -quit)"
-          actual=$(find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
-          test -n "$EXPECTED"
-          test "$actual" = "$EXPECTED"
-
-      - name: Upload dry run from the artifact
-        shell: bash
-        working-directory: api
-        env:
-          CABIN_WORKER_PREBUILT: "1"
-        run: |
-          test ! -e ../registry
-          test -f build/index.js
-          node_modules/.bin/wrangler deploy --no-bundle --dry-run --outdir "$RUNNER_TEMP/probe-out"
-          test -f "$RUNNER_TEMP/probe-out/index.js"
 
   # Ships the artifact above on a fresh runner that compiles nothing:
   # the deploy credential never shares a runner with a build. The job
