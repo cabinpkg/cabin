@@ -267,6 +267,19 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         );
     }
 
+    // No build script runs here.  A lookup that fails counts as no
+    // script, and the planner refuses a library without a source when
+    // the plan reaches it, as it does in a package without a script.
+    let scripted: BTreeSet<usize> = selected_closure
+        .iter()
+        .copied()
+        .filter(|&idx| {
+            <&camino::Utf8Path>::try_from(graph.packages[idx].manifest_dir.as_path())
+                .is_ok_and(|root| matches!(cabin_build_script::find(root), Ok(Some(_))))
+        })
+        .collect();
+    let supplied = cabin_build::libraries_left_to_build_scripts(&graph, &scripted, &platform);
+
     let plan_graph = plan(&PlanRequest {
         graph: &graph,
         toolchain: &toolchain,
@@ -274,7 +287,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         language_standards: &language_standards,
         standard_flag_conflicts: &standard_flag_conflicts,
         build_scripts: &[],
-        build_script_outputs: &std::collections::HashMap::new(),
+        build_script_outputs: &supplied,
         build_dir: build_dir.clone(),
         platform: TargetPlatform::current(),
         clang_target: None,

@@ -103,9 +103,9 @@ What depends on the library compiles and links with those flags:
 Cabin asks on every command that [runs build scripts](build-scripts.md#which-commands-run-build-scripts),
 whether or not the script itself runs again, so a module that is gone or answers other flags is
 seen at once.  `cabin metadata`, `cabin tree`, and `cabin explain` run no build script and ask
-nothing.  [`cabin tidy`](tidy.md) runs no build script either: it refuses a library that lists no
-source, as `zlib-sys` above does, and otherwise sees a system library's headers only where the
-compiler finds them by itself.
+nothing.  [`cabin tidy`](tidy.md) runs no build script either: it analyzes what depends on a
+system library without pkg-config's flags, so the library's headers are found only where the
+compiler looks by itself.
 
 ## Version requirements
 
@@ -209,8 +209,7 @@ registry.  Replace the entry with a dependency on a package that supplies the li
 - A supplying package that comes from a registry is resolved, fetched, and recorded in
   `cabin.lock` like any other.  The system's copy is still not recorded.
 - `cabin metadata` no longer has `system_dependencies` in a package, and neither it nor
-  `cabin explain` asks pkg-config.  `cabin tidy` no longer adds pkg-config's flags, and refuses a
-  library that lists no source.
+  `cabin explain` asks pkg-config.  `cabin tidy` no longer adds pkg-config's flags.
 - `cabin -v` no longer prints a line for each module.
 - A build with an MSVC toolchain can now take a system library, from a package whose script
   reports the library's files.
