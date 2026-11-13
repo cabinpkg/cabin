@@ -8,6 +8,21 @@ use std::fmt::Write as _;
 
 use sha2::{Digest, Sha256};
 
+/// How long a recorded use stands. `tokens.last_used_at` is the time of
+/// a successful authentication with that token, refreshed by the next
+/// one that comes at least this long after it: accurate to about the
+/// interval and best-effort, not a record of every request.
+pub const LAST_USED_INTERVAL_MS: u64 = 15 * 60 * 1000;
+
+/// Whether an authentication has a use to record, given the stored
+/// `last_used_at` and `cutoff`: the authentication's own time minus
+/// [`LAST_USED_INTERVAL_MS`], in the stored text shape, where text
+/// order is time order. A stored use later than the cutoff - within
+/// the interval, or ahead of this isolate's clock - stands.
+pub fn last_use_is_due(last_used_at: Option<&str>, cutoff: &str) -> bool {
+    last_used_at.is_none_or(|recorded| recorded <= cutoff)
+}
+
 /// A scope a token row may carry. Reads require no scope: any valid,
 /// unrevoked token grants read access. Unknown scope strings grant nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,6 +141,19 @@ pub fn parse_scopes(scopes: &str) -> Vec<Scope> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_recorded_use_stands_for_the_interval() {
+        // An authentication at 12:15:00.000: the cutoff is 12:00:00.000.
+        let cutoff = "2026-07-15T12:00:00.000Z";
+        assert!(last_use_is_due(None, cutoff));
+        assert!(last_use_is_due(Some("2026-07-15T11:59:59.999Z"), cutoff));
+        // Exactly the interval ago is due; a millisecond less is not.
+        assert!(last_use_is_due(Some(cutoff), cutoff));
+        assert!(!last_use_is_due(Some("2026-07-15T12:00:00.001Z"), cutoff));
+        // Another isolate's clock ran ahead: its record stands.
+        assert!(!last_use_is_due(Some("2026-07-15T12:20:00.000Z"), cutoff));
+    }
 
     #[test]
     fn bearer_token_parses_the_scheme_case_insensitively() {

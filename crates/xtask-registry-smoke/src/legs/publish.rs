@@ -614,6 +614,15 @@ fn closed_to_outsiders(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<
             );
         }
     }
+    // A token the allowlist refuses was never used: its row (the 403s
+    // above prove it is there) records no use.
+    let recorded = d1_json(
+        "SELECT count(*) AS recorded FROM tokens \
+         WHERE id = 'smoke-outsider' AND last_used_at IS NOT NULL",
+    )?;
+    if column(&recorded, "recorded")? != "0" {
+        bail!("an unadmitted token's requests recorded a use");
+    }
     // A cache-hit download by an admitted caller: served, counted, and
     // the outward answer stays no-store (the Worker-internal cache is
     // the one caching layer that keeps the counter accurate and the

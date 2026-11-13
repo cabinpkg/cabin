@@ -45,6 +45,7 @@ struct TokenRecord {
     rl_tokens: Option<f64>,
     rl_updated_at: Option<String>,
     github_id: Option<String>,
+    last_used_at: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -222,9 +223,13 @@ async fn authenticate(
         return Ok(Authn::Invalid);
     };
     let hash = auth::token_hash(token);
+    // One clock read: the instant the token is checked against is the
+    // instant recorded as its use.
+    let now_ms = worker::Date::now().as_millis();
+    let now = iso8601_from_ms(now_ms);
     let record: Option<TokenRecord> = db
         .prepare(sql::AUTH_TOKEN_LOOKUP)
-        .bind(&[hash.into(), now_iso8601().into()])?
+        .bind(&[hash.into(), now.as_str().into()])?
         .first(None)
         .await?;
     let Some(record) = record else {
@@ -234,13 +239,22 @@ async fn authenticate(
         return Ok(Authn::NotAdmitted);
     }
 
-    // Best-effort bookkeeping: never fail or delay the request over it.
-    if let Ok(update) = db
-        .prepare(sql::TOUCH_TOKEN_LAST_USED)
-        .bind(&[now_iso8601().into(), record.id.clone().into()])
+    // Best-effort bookkeeping, at most once an interval per token: no
+    // statement at all while the recorded use stands, and never a
+    // failed or delayed request over it. A write that fails leaves the
+    // row due, so a later use records.
+    let cutoff = iso8601_from_ms(now_ms.saturating_sub(auth::LAST_USED_INTERVAL_MS));
+    if auth::last_use_is_due(record.last_used_at.as_deref(), &cutoff)
+        && let Ok(touch) = db.prepare(sql::TOUCH_TOKEN_LAST_USED).bind(&[
+            now.into(),
+            record.id.clone().into(),
+            cutoff.into(),
+        ])
     {
         ctx.wait_until(async move {
-            let _ = update.run().await;
+            if let Err(err) = touch.run().await {
+                console_error!("recording a token's last use failed: {err}");
+            }
         });
     }
 

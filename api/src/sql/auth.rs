@@ -16,19 +16,30 @@ statements! {
     /// `github_id` is the owning account's GitHub identity (NULL when it
     /// has none), which the glue re-checks against the private-alpha
     /// allowlist on every use (`crate::allowlist::admits`).
+    /// `last_used_at` rides along so the glue can tell, without a
+    /// second read, whether this use is due a record
+    /// (`crate::auth::last_use_is_due`).
     AUTH_TOKEN_LOOKUP =
         "SELECT t.id, t.user_id, t.scopes, \
                 COALESCE(t.quota_class, u.quota_class) AS quota_class, t.scope_limit, \
                 u.quota_class AS user_quota_class, u.rl_tokens, u.rl_updated_at, \
                 (SELECT i.provider_account_id FROM identities i \
-                 WHERE i.user_id = u.id AND i.provider = 'github') AS github_id \
+                 WHERE i.user_id = u.id AND i.provider = 'github') AS github_id, \
+                t.last_used_at \
          FROM tokens t JOIN users u ON u.id = t.user_id \
          WHERE t.token_hash = ?1 AND t.revoked_at IS NULL \
          AND t.created_at <= ?2 AND t.expires_at > ?2";
 
-    /// Best-effort `last_used_at` bookkeeping on every
-    /// bearer-authenticated request.
-    TOUCH_TOKEN_LAST_USED = "UPDATE tokens SET last_used_at = ?1 WHERE id = ?2";
+    /// Records an authentication at `?1` as the token's last use, only
+    /// while the stored use is missing or no later than the cutoff `?3`
+    /// (`?1` minus `crate::auth::LAST_USED_INTERVAL_MS`). The glue
+    /// issues this only when the row it read was due; the condition is
+    /// for the requests that read the same stale value together - one
+    /// of them changes the row - and for a write that lands late, which
+    /// can then never move the time backwards.
+    TOUCH_TOKEN_LAST_USED =
+        "UPDATE tokens SET last_used_at = ?1 \
+         WHERE id = ?2 AND (last_used_at IS NULL OR last_used_at <= ?3)";
 
     /// Creates the registry-native user row exactly when the identity
     /// is new. Must run in one batch (one transaction) directly before

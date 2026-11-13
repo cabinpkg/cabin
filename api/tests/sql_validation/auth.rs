@@ -332,6 +332,105 @@ fn a_scope_limited_token_authenticates_and_carries_its_limit() {
     assert_eq!(scope_limit.as_deref(), Some("cabin-ports"));
 }
 
+/// The recorded last use the bearer lookup delivers for a live token.
+fn recorded_use(conn: &rusqlite::Connection, token_hash: &str, now: &str) -> Option<String> {
+    conn.query_row(
+        sql::AUTH_TOKEN_LOOKUP,
+        rusqlite::params![token_hash, now],
+        |row| row.get("last_used_at"),
+    )
+    .expect("auth lookup")
+}
+
+/// [`sql::TOUCH_TOKEN_LAST_USED`] for an authentication at `now`, bound
+/// as `glue::authenticate` binds it (`cutoff` is `now` minus the
+/// 15-minute interval), returning the rows it changed.
+fn record_use(conn: &rusqlite::Connection, token_id: &str, now: &str, cutoff: &str) -> usize {
+    conn.execute(
+        sql::TOUCH_TOKEN_LAST_USED,
+        rusqlite::params![now, token_id, cutoff],
+    )
+    .expect("record the use")
+}
+
+#[test]
+fn a_last_use_is_recorded_once_an_interval_and_never_moves_back() {
+    let conn = migrated_connection();
+    seed_token(&conn, "tok-1", "hash-1");
+    let stored = |now: &str| recorded_use(&conn, "hash-1", now);
+    // Minting is not a use.
+    assert_eq!(stored("2026-07-15T01:00:00.000Z"), None);
+    // The first use records its own time...
+    assert_eq!(
+        record_use(
+            &conn,
+            "tok-1",
+            "2026-07-15T01:00:00.000Z",
+            "2026-07-15T00:45:00.000Z"
+        ),
+        1
+    );
+    // ...and a request that read the same missing value changes nothing.
+    assert_eq!(
+        record_use(
+            &conn,
+            "tok-1",
+            "2026-07-15T01:00:00.005Z",
+            "2026-07-15T00:45:00.005Z"
+        ),
+        0
+    );
+    // A millisecond short of the interval the record stands; exactly
+    // the interval later it moves.
+    assert_eq!(
+        record_use(
+            &conn,
+            "tok-1",
+            "2026-07-15T01:14:59.999Z",
+            "2026-07-15T00:59:59.999Z"
+        ),
+        0
+    );
+    assert_eq!(
+        record_use(
+            &conn,
+            "tok-1",
+            "2026-07-15T01:15:00.000Z",
+            "2026-07-15T01:00:00.000Z"
+        ),
+        1
+    );
+    assert_eq!(
+        stored("2026-07-15T01:15:00.000Z").as_deref(),
+        Some("2026-07-15T01:15:00.000Z")
+    );
+    // Two requests read that value an interval later. The later one's
+    // write lands first; the earlier one's, landing late, must not move
+    // the time back.
+    assert_eq!(
+        record_use(
+            &conn,
+            "tok-1",
+            "2026-07-15T01:30:00.004Z",
+            "2026-07-15T01:15:00.004Z"
+        ),
+        1
+    );
+    assert_eq!(
+        record_use(
+            &conn,
+            "tok-1",
+            "2026-07-15T01:30:00.000Z",
+            "2026-07-15T01:15:00.000Z"
+        ),
+        0
+    );
+    assert_eq!(
+        stored("2026-07-15T01:30:00.004Z").as_deref(),
+        Some("2026-07-15T01:30:00.004Z")
+    );
+}
+
 #[test]
 fn token_kind_domain_is_closed_in_the_schema() {
     let conn = migrated_connection();
