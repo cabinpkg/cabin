@@ -35,11 +35,11 @@ export const NAV_LINKS = {
     },
 } as const;
 
-// The account pages (see "Account pages" in README.md). `/login` is the
+// The account pages (see "Account pages" in README.md). `signIn` is the
 // registry Worker's OAuth route mounted on this origin; the rest are
 // static pages of this site.
 export const ACCOUNT_URLS = {
-    signIn: "/login",
+    signIn: "/api/auth/login",
     dashboard: "/dashboard",
     source: "/dashboard/source",
     package: "/dashboard/package",

@@ -8,7 +8,9 @@
 //! administers. Every check that crosses two API responses is bound by
 //! **numeric id**, never by login - logins can be renamed and
 //! reassigned between calls; ids cannot. Every refusal is uniform: the
-//! callback redirects to the same denied page whatever failed.
+//! callback redirects to the same denied page whatever failed (a
+//! callback whose state cookie is missing or expired is no claim, and
+//! gets the sign-in refusal).
 
 use serde::Deserialize;
 

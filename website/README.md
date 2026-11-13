@@ -101,8 +101,8 @@ none of the recording tools. To regenerate it:
 are the registry account pages, styled after crates.io. They are static
 pages like everything else: their scripts talk to the registry's session
 user API, which the registry Worker mounts on this site's production
-origin under `/api/*` (plus `/login` and `/callback` for the GitHub
-OAuth flow) - see `api/README.md` in the repository. The
+origin under `/api/*` (the GitHub OAuth flow included, at
+`/api/auth/*`) - see `api/README.md` in the repository. The
 website itself holds no sessions and no secrets.
 
 - The pages ship labeled as private alpha, and sign-in is restricted to
@@ -112,8 +112,8 @@ website itself holds no sessions and no secrets.
   account pages render their signed-out/error states and the rest of the
   site is unaffected; `npm run verify:progressive` enforces at build time
   that no marketing page's HTML depends on `/api/`.
-- During `npm run dev`, an Astro dev-server proxy forwards `/api/*`,
-  `/login`, and `/callback` to the production origin, so the pages'
+- During `npm run dev`, an Astro dev-server proxy forwards `/api/*`
+  to the production origin, so the pages'
   relative fetches resolve and cookies set by proxied responses land on
   localhost. The proxy is dev-only and absent from the production build.
   Signed-in flows still cannot be exercised locally: the OAuth callback

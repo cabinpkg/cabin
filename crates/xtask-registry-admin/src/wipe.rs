@@ -256,7 +256,7 @@ Follow-ups, IN THIS ORDER (api/docs/runbook.md, "Post-wipe re-provisioning"):
      migrations-applied stamp to the pull request that changes the
      migrations (to one of their own when main already carries them)
      and merge it now: main still names the deleted database
-  2. sign in again and re-claim scopes (/claim/<scope>; a GitHub org's
+  2. sign in again and re-claim scopes (/api/auth/claim/<scope>; a GitHub org's
      OAuth app grant survives the wipe, so re-claims grant immediately);
      the cabin-ports claim is what re-arms ports publishing - the
      trusted-publishing exchange refuses an unclaimed scope

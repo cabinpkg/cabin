@@ -7,7 +7,7 @@
 //! so the cookie arrives as a parameter rather than being re-derived;
 //! the logout leg revokes a second seeded session of the same user and
 //! checks that cookie survives.  The claim flow carries only fetch
-//! metadata and its own claim-state cookie.
+//! metadata and the state cookie its start set.
 
 use anyhow::{Context as _, Result, bail};
 use serde_json::Value;
@@ -76,7 +76,7 @@ fn logout(smoke: &mut Smoke, main_cookie: &str) -> Result<()> {
 }
 
 /// The fetch-metadata gate on claim initiation.  A refusal must seal
-/// nothing - a sealed cookie would leave `/callback/claim` reachable
+/// nothing - a sealed cookie would leave `/api/auth/callback` reachable
 /// with a state the victim's browser is carrying.
 fn claim_initiation_intent(smoke: &mut Smoke) -> Result<()> {
     step("starting a claim needs a same-origin or user-typed navigation");
@@ -99,7 +99,7 @@ fn claim_initiation_intent(smoke: &mut Smoke) -> Result<()> {
 /// 'statedrift', which is unclaimed and fully grantable in the mock, so
 /// nothing but the fetch-metadata gate can be what refused it.
 fn refuse_claim_start(smoke: &mut Smoke, headers: &[(String, String)], what: &str) -> Result<()> {
-    let url = smoke.url(Base::Web, "/claim/statedrift");
+    let url = smoke.url(Base::Web, "/api/auth/claim/statedrift");
     smoke.http("GET", &url, headers, None)?;
     let block = text(&smoke.headers).into_owned();
     let location = location_value(&block);
@@ -116,20 +116,25 @@ fn refuse_claim_start(smoke: &mut Smoke, headers: &[(String, String)], what: &st
 }
 
 fn claim_cookie_scope(smoke: &mut Smoke) -> Result<()> {
-    step("the claim-state cookie is scoped to the claim callback");
-    let url = smoke.url(Base::Web, "/claim/smoke");
+    step("the claim's state cookie is scoped to the callback");
+    let url = smoke.url(Base::Web, "/api/auth/claim/smoke");
     smoke.http("GET", &url, &user_initiated(), None)?;
     let block = text(&smoke.headers).into_owned();
     // The capture keeps each line's trailing CR, which every
     // diagnostic below carries.
-    let line = grep_lines(&block, "set-cookie: cabin_claim_state=").join("\n");
+    let line = grep_lines(&block, "set-cookie: cabin_oauth_state=").join("\n");
     if line.is_empty() {
         bail!(
-            "/claim/smoke set no claim-state cookie: {}",
+            "/api/auth/claim/smoke set no claim-state cookie: {}",
             capture(&smoke.headers)
         );
     }
-    for attribute in ["Path=/callback/claim", "HttpOnly", "Secure", "SameSite=Lax"] {
+    for attribute in [
+        "Path=/api/auth/callback",
+        "HttpOnly",
+        "Secure",
+        "SameSite=Lax",
+    ] {
         if !line.contains(attribute) {
             bail!("claim-state cookie is missing {attribute}: {line}");
         }
@@ -192,32 +197,70 @@ fn permanent_claims(smoke: &mut Smoke) -> Result<()> {
 }
 
 fn unmatched_state(smoke: &mut Smoke) -> Result<()> {
-    step("a claim callback without a valid matching state is refused");
-    let url = smoke.url(Base::Web, "/callback/claim");
-    smoke.http("GET", &url, &[], None)?;
-    if !refuses(&text(&smoke.headers)) {
+    step("the callback refuses a state that is not its cookie's, as the cookie's flow");
+    // Both flows would be granted here: the mock exchanges any code, and
+    // 'statedrift' is unclaimed and fully grantable.  So nothing but the
+    // state comparison can refuse, and each refusal's page shows the
+    // flow came from the cookie, not from the state that arrived.
+    let (login_cookie, login_state) = start(smoke, "/api/auth/login", &[])?;
+    let (claim_cookie, claim_state) =
+        start(smoke, "/api/auth/claim/statedrift", &user_initiated())?;
+    callback_refuses(
+        smoke,
+        &login_cookie,
+        &format!("code=smoke&state={claim_state}"),
+        "/login/denied/",
+    )?;
+    callback_refuses(
+        smoke,
+        &claim_cookie,
+        &format!("code=smoke&state={login_state}"),
+        "/dashboard/?claim=denied",
+    )?;
+
+    step("a claim cancelled at github is refused as a claim");
+    // GitHub then returns the state with `error=access_denied` and no code.
+    callback_refuses(
+        smoke,
+        &claim_cookie,
+        &format!("error=access_denied&state={claim_state}"),
+        "/dashboard/?claim=denied",
+    )
+}
+
+/// Starts a flow: its sealed state cookie and the authorize redirect's
+/// state.
+fn start(smoke: &mut Smoke, path: &str, headers: &[(String, String)]) -> Result<(String, String)> {
+    let url = smoke.url(Base::Web, path);
+    smoke.http("GET", &url, headers, None)?;
+    let block = text(&smoke.headers).into_owned();
+    let cookie = claim_state_value(&block);
+    let state = state_value(&location_value(&block));
+    if cookie.is_empty() || state.is_empty() {
         bail!(
-            "a bare claim callback did not refuse: {}",
+            "{path} set no state cookie or state: {}",
             capture(&smoke.headers)
         );
     }
+    Ok((cookie, state))
+}
 
-    // A sealed cookie with a mismatched state parameter refuses before
-    // any GitHub call.  'statedrift' is unclaimed AND fully grantable in
-    // the mock, so nothing but the state comparison can be what refused
-    // it.
-    let url = smoke.url(Base::Web, "/claim/statedrift");
-    smoke.http("GET", &url, &user_initiated(), None)?;
-    let cookie = claim_state_value(&text(&smoke.headers));
-    if cookie.is_empty() {
-        bail!("/claim/statedrift set no claim-state cookie");
-    }
-    let url = smoke.url(Base::Web, "/callback/claim?code=smoke&state=deadbeef");
-    let headers = vec![("Cookie".to_owned(), format!("cabin_claim_state={cookie}"))];
+fn callback_refuses(smoke: &mut Smoke, cookie: &str, query: &str, expected: &str) -> Result<()> {
+    let url = smoke.url(Base::Web, &format!("/api/auth/callback?{query}"));
+    let headers = vec![("Cookie".to_owned(), format!("cabin_oauth_state={cookie}"))];
     smoke.http("GET", &url, &headers, None)?;
-    if !refuses(&text(&smoke.headers)) {
+    let block = text(&smoke.headers).into_owned();
+    let location = location_value(&block);
+    if location != expected {
+        bail!("/api/auth/callback?{query} answered '{location}', expected '{expected}'");
+    }
+    // A refusal spends the state cookie too, at the path it was set on.
+    if !grep_lines(&block, "set-cookie: cabin_oauth_state=")
+        .iter()
+        .any(|line| line.contains("Max-Age=0") && line.contains("Path=/api/auth/callback"))
+    {
         bail!(
-            "a mismatched claim state did not refuse: {}",
+            "the refused callback did not clear the state cookie: {}",
             capture(&smoke.headers)
         );
     }
@@ -326,23 +369,26 @@ fn owner_gate(smoke: &mut Smoke, cookie: &str) -> Result<()> {
 /// follows the redirect: the 302 *is* the subject, and the next request
 /// is made by hand from what it carried.
 fn claim_scope(smoke: &mut Smoke, scope: &str, expected: &str) -> Result<()> {
-    let url = smoke.url(Base::Web, &format!("/claim/{scope}"));
+    let url = smoke.url(Base::Web, &format!("/api/auth/claim/{scope}"));
     smoke.http("GET", &url, &user_initiated(), None)?;
     let block = text(&smoke.headers).into_owned();
     if !status_line_is(&block, 302) {
-        bail!("/claim/{scope} did not answer 302: {}", first_line(&block));
+        bail!(
+            "/api/auth/claim/{scope} did not answer 302: {}",
+            first_line(&block)
+        );
     }
     let location = location_value(&block);
     if !location.contains("/login/oauth/authorize?") {
-        bail!("/claim/{scope} redirect is not the authorize page: {location}");
+        bail!("/api/auth/claim/{scope} redirect is not the authorize page: {location}");
     }
-    // The dedicated roundtrip's shape: read:org, and the subdirectory
-    // callback GitHub accepts under the registered /callback URL.
+    // The dedicated roundtrip's shape: read:org, and the one registered
+    // callback as the exact redirect_uri (the scope parameter follows it).
     if !location.contains("scope=read%3Aorg") {
         bail!("the claim authorize request must ask for read:org: {location}");
     }
-    if !location.contains("redirect_uri=https%3A%2F%2Fcabinpkg.com%2Fcallback%2Fclaim") {
-        bail!("the claim redirect_uri is not /callback/claim: {location}");
+    if !location.contains("redirect_uri=https%3A%2F%2Fcabinpkg.com%2Fapi%2Fauth%2Fcallback&") {
+        bail!("the claim redirect_uri is not /api/auth/callback: {location}");
     }
     let state = state_value(&location);
     if state.is_empty() {
@@ -351,24 +397,24 @@ fn claim_scope(smoke: &mut Smoke, scope: &str, expected: &str) -> Result<()> {
     let cookie = claim_state_value(&block);
     if cookie.is_empty() {
         bail!(
-            "/claim/{scope} set no claim-state cookie: {}",
+            "/api/auth/claim/{scope} set no claim-state cookie: {}",
             capture(&smoke.headers)
         );
     }
 
     let url = smoke.url(
         Base::Web,
-        &format!("/callback/claim?code=smoke&state={state}"),
+        &format!("/api/auth/callback?code=smoke&state={state}"),
     );
-    let headers = vec![("Cookie".to_owned(), format!("cabin_claim_state={cookie}"))];
+    let headers = vec![("Cookie".to_owned(), format!("cabin_oauth_state={cookie}"))];
     smoke.http("GET", &url, &headers, None)?;
     let block = text(&smoke.headers).into_owned();
     let location = location_value(&block);
     if location != format!("/dashboard/?claim={expected}") {
-        bail!("/callback/claim for {scope} answered '{location}', expected claim={expected}");
+        bail!("/api/auth/callback for {scope} answered '{location}', expected claim={expected}");
     }
     // The claim-state cookie is one-shot: cleared on every outcome.
-    if !grep_lines(&block, "set-cookie: cabin_claim_state=")
+    if !grep_lines(&block, "set-cookie: cabin_oauth_state=")
         .iter()
         .any(|line| line.contains("Max-Age=0"))
     {
@@ -413,12 +459,6 @@ fn user_initiated() -> Vec<(String, String)> {
     fetch_metadata("none", "navigate", None)
 }
 
-/// Whether a header line starts (case-insensitively) with the uniform
-/// claim denial's `location`.
-fn refuses(block: &str) -> bool {
-    !grep_lines(block, "location: /dashboard/?claim=denied").is_empty()
-}
-
 /// The `location` value with CRs dropped: every matching line, so a
 /// duplicated header can never equal the single expected value.
 pub(crate) fn location_value(block: &str) -> String {
@@ -429,7 +469,7 @@ pub(crate) fn location_value(block: &str) -> String {
 /// dropped.
 fn claim_state_value(block: &str) -> String {
     joined(
-        grep_lines(block, "set-cookie: cabin_claim_state=")
+        grep_lines(block, "set-cookie: cabin_oauth_state=")
             .into_iter()
             .map(strip_claim_state),
     )
@@ -441,14 +481,14 @@ fn joined<'a>(lines: impl Iterator<Item = &'a str>) -> String {
     lines.collect::<Vec<_>>().join("\n").replace('\r', "")
 }
 
-/// `sed 's/^[^:]*: cabin_claim_state=\([^;]*\);.*/\1/'`: the value up to
+/// `sed 's/^[^:]*: cabin_oauth_state=\([^;]*\);.*/\1/'`: the value up to
 /// the first `;`.  A cookie carrying no attribute at all matches
 /// nothing, and `sed` then passes the whole line through unchanged.
 fn strip_claim_state(line: &str) -> &str {
     let Some(colon) = line.find(':') else {
         return line;
     };
-    let Some(rest) = line[colon..].strip_prefix(": cabin_claim_state=") else {
+    let Some(rest) = line[colon..].strip_prefix(": cabin_oauth_state=") else {
         return line;
     };
     match rest.find(';') {
@@ -489,7 +529,7 @@ mod tests {
         "HTTP/1.1 302 Found\r\n",
         "location: http://127.0.0.1:8790/login/oauth/authorize\
          ?client_id=smoke&scope=read%3Aorg&state=00ff1234\r\n",
-        "set-cookie: cabin_claim_state=sealed.value; Path=/callback/claim; \
+        "set-cookie: cabin_oauth_state=sealed.value; Path=/api/auth/callback; \
          HttpOnly; Secure; SameSite=Lax\r\n",
         "\r\n",
     );
@@ -520,10 +560,10 @@ mod tests {
     /// cookie with no attributes yields the whole header line.
     #[test]
     fn an_attributeless_claim_cookie_keeps_the_line() {
-        let block = "set-cookie: cabin_claim_state=bare\r\n";
+        let block = "set-cookie: cabin_oauth_state=bare\r\n";
         assert_eq!(
             claim_state_value(block),
-            "set-cookie: cabin_claim_state=bare"
+            "set-cookie: cabin_oauth_state=bare"
         );
     }
 
@@ -536,16 +576,5 @@ mod tests {
         assert_eq!(state_value("/x?state=aBc"), "a");
         assert_eq!(state_value("/x?nostate=abc"), "");
         assert_eq!(state_value("/login/oauth/authorize?client_id=1"), "");
-    }
-
-    #[test]
-    fn the_refusal_prefix_is_case_insensitive_and_anchored() {
-        assert!(refuses(
-            "HTTP/1.1 302 Found\r\nLocation: /dashboard/?claim=denied\r\n\r\n"
-        ));
-        assert!(!refuses(
-            "HTTP/1.1 302 Found\r\nlocation: /dashboard/?claim=granted\r\n\r\n"
-        ));
-        assert!(!refuses("x-echo: location: /dashboard/?claim=denied\r\n"));
     }
 }
