@@ -16,6 +16,7 @@ use std::path::Path;
 use anyhow::{Context as _, Result, bail};
 
 use crate::context::{Base, Smoke};
+use crate::servers::{d1, d1_rows};
 use crate::step;
 use crate::text::{capture, first_line, grep_lines, status_line_is, strip_name, text};
 
@@ -334,7 +335,7 @@ pub fn verifier_exchange_surface(smoke: &mut Smoke) -> Result<()> {
     }
     // The mint's batch also recorded the verifier's heartbeat: the
     // minted row's own creation time, which no earlier run's is.
-    let heartbeat = crate::servers::d1_rows(
+    let heartbeat = d1_rows(
         "SELECT 1 FROM meta WHERE key = 'verifier_seen_at' \
          AND value = (SELECT MAX(created_at) FROM tokens WHERE scopes = 'verify')",
     )?;
@@ -381,11 +382,12 @@ pub fn verifier_exchange_surface(smoke: &mut Smoke) -> Result<()> {
 
 /// The login-session mint, end to end: the GitHub access token in the
 /// body - proven against the mock's check-token route - mints the 12-hour
-/// session token, the token exercises its scope set and revokes
-/// itself, and a live token of another kind cannot revoke through the
-/// route.  Anonymous in spirit (nothing here touches [`Smoke::auth`])
-/// but called from the tokened phase: the mint's identity lookup needs
-/// the seeded github account, which a tokenless run never writes.
+/// session token, the token's uses are recorded (`last_use`), the
+/// token exercises its scope set and revokes itself, and a live token
+/// of another kind cannot revoke through the route.  Anonymous in
+/// spirit (nothing here touches [`Smoke::auth`]) but called from the
+/// tokened phase: the mint's identity lookup needs the seeded github
+/// account, which a tokenless run never writes.
 ///
 /// # Errors
 ///
@@ -404,12 +406,9 @@ pub fn login_session_surface(smoke: &mut Smoke, non_session_token: &str) -> Resu
         &[],
         Some(br#"{"github_token":"gho_wrong"}"#),
     )?;
-    // The seeded publisher and outsider credentials are session rows
-    // themselves, so the leftover probe excludes them by id.
-    let rows = crate::servers::d1_rows(
-        "SELECT ifnull(group_concat(id, ','), '') AS ids FROM tokens \
-         WHERE kind = 'session' AND id NOT IN ('smoke', 'smoke-outsider')",
-    )?;
+    let rows = d1_rows(&format!(
+        "SELECT ifnull(group_concat(id, ','), '') AS ids FROM tokens WHERE {MINTED_SESSION}"
+    ))?;
     let leftovers = rows
         .first()
         .and_then(|row| row.get("ids"))
@@ -457,9 +456,10 @@ pub fn login_session_surface(smoke: &mut Smoke, non_session_token: &str) -> Resu
     {
         bail!("no expires_at in the mint answer: {minted}");
     }
+    let auth = bearer(&token);
+    last_use(smoke, &auth)?;
     // The mint is user 2's, not the operator's: publish and yank, no
     // verify - the admin plane answers the session token the scope 403.
-    let auth = bearer(&token);
     for path in [
         "/api/v1/admin/versions?status=pending",
         "/api/v1/admin/governor",
@@ -487,6 +487,78 @@ pub fn login_session_surface(smoke: &mut Smoke, non_session_token: &str) -> Resu
         bail!("revoking the minted session token answered {status}, expected 204");
     }
     uniform_401_with(smoke, Base::Web, "DELETE", SESSION_TOKENS_PATH, &auth, None)
+}
+
+/// The session rows a mint in [`login_session_surface`] made: the
+/// seeded publisher and outsider credentials are session rows too.
+const MINTED_SESSION: &str = "kind = 'session' AND id NOT IN ('smoke', 'smoke-outsider')";
+
+/// The just-minted session token's last use, as `glue::authenticate`
+/// records it: not by the mint, by the first use, not again inside the
+/// interval, again once the record is an interval old - and a record
+/// that fails to write costs the request nothing.
+fn last_use(smoke: &mut Smoke, auth: &[(String, String)]) -> Result<()> {
+    if let Some(recorded) = minted_last_use()? {
+        bail!("minting the session token recorded a use: {recorded}");
+    }
+    // An authenticated request: the token lacks the verify scope, so
+    // the admin plane refuses it only after accepting the credential.
+    let governor = smoke.url(Base::Web, "/api/v1/admin/governor");
+    let mut use_token = || -> Result<()> {
+        let status = smoke.http("GET", &governor, auth, None)?;
+        if status != 403 {
+            bail!("the minted session token's admin read answered {status}, expected 403");
+        }
+        Ok(())
+    };
+    d1(
+        "CREATE TRIGGER smoke_refuse_last_use BEFORE UPDATE OF last_used_at ON tokens \
+         BEGIN SELECT RAISE(ABORT, 'smoke'); END",
+    )?;
+    use_token()?;
+    let recorded = minted_last_use()?;
+    d1("DROP TRIGGER smoke_refuse_last_use")?;
+    if let Some(recorded) = recorded {
+        bail!("a use was recorded past the refusing trigger: {recorded}");
+    }
+    // The failed record left the token due, so a later use records.
+    let first = use_until_recorded(&mut use_token, "")?;
+    use_token()?;
+    if minted_last_use()?.as_deref() != Some(first.as_str()) {
+        bail!("a second use inside the interval moved the recorded use from {first}");
+    }
+    d1(&format!(
+        "UPDATE tokens SET last_used_at = '2026-01-01T00:00:00.000Z' WHERE {MINTED_SESSION}"
+    ))?;
+    use_until_recorded(&mut use_token, "2026-01-01T00:00:00.000Z")?;
+    Ok(())
+}
+
+/// The minted session token's recorded last use, if any.
+fn minted_last_use() -> Result<Option<String>> {
+    let rows = d1_rows(&format!(
+        "SELECT last_used_at FROM tokens WHERE {MINTED_SESSION}"
+    ))?;
+    let [row] = rows.as_slice() else {
+        bail!("expected the one minted session row, found {}", rows.len());
+    };
+    Ok(row
+        .get("last_used_at")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned))
+}
+
+/// Uses the token until a use later than `after` is on record.  The
+/// Worker records after it answers, and a record it loses is made up
+/// for by a later use, so one use is not always enough.
+fn use_until_recorded(use_token: &mut impl FnMut() -> Result<()>, after: &str) -> Result<String> {
+    for _ in 0..20 {
+        use_token()?;
+        if let Some(recorded) = minted_last_use()?.filter(|recorded| recorded.as_str() > after) {
+            return Ok(recorded);
+        }
+    }
+    bail!("the minted session token's use was never recorded (after '{after}')")
 }
 
 fn session_endpoints(smoke: &mut Smoke) -> Result<()> {
