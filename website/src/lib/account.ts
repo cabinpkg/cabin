@@ -14,6 +14,9 @@ export interface User {
     github_id: number;
     login: string;
     quota_class: string;
+    // The verified primary email of the GitHub account, as a sign-in
+    // last read it; null while the registry holds none.
+    notification_email: string | null;
 }
 
 export interface Quotas {

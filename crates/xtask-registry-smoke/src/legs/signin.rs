@@ -2,20 +2,23 @@
 //! existing user signs in whatever their account age, a fresh account
 //! under the sign-up gate's 90 days is refused with the first eligible
 //! date, and a fresh account past them is created and signed in
-//! (`api/src/signup.rs`).
+//! (`api/src/signup.rs`). Each granted sign-in also reads the account's
+//! notification address (`api/src/notification_email.rs`).
 
 use anyhow::{Result, bail};
 
 use crate::context::{Base, Smoke};
 use crate::legs::claims::{location_value, state_value};
 use crate::legs::session::{csrf_headers, session_request};
+use crate::servers::{d1, d1_rows};
 use crate::step;
 use crate::text::{capture, first_line, grep_lines, status_line_is, text};
 
-/// The three roundtrips, in an order that keeps reruns green: only the
-/// `fresh-old` sign-in writes an identity row (github id 4), and a
-/// rerun then takes the existing-user path to the same `/dashboard/`.
-/// The mock's `/user` is restored on the way out.
+/// The sign-up gate's three roundtrips, in an order that keeps reruns
+/// green: only the `fresh-old` sign-in writes an identity row (github
+/// id 4), and a rerun then takes the existing-user path to the same
+/// `/dashboard/`. The mock's `/user` is restored before the
+/// notification-address checks.
 ///
 /// # Errors
 ///
@@ -58,8 +61,70 @@ pub fn run(smoke: &mut Smoke, github_port: u16) -> Result<()> {
     signin_mode(smoke, github_port, "fresh-old")?;
     let block = callback_roundtrip(smoke)?;
     expect_dashboard(smoke, &block, "an old-enough fresh account's sign-in")?;
+    // The sign-in that creates an account stores its address with it.
+    let created = d1_rows(
+        "SELECT u.notification_email AS address FROM users u \
+         JOIN identities i ON i.user_id = u.id WHERE i.provider_account_id = '4'",
+    )?;
+    if created.first().and_then(|row| row["address"].as_str()) != Some("smoke@example.com") {
+        bail!("the created account does not hold the verified primary address: {created:?}");
+    }
 
-    signin_mode(smoke, github_port, "off")
+    signin_mode(smoke, github_port, "off")?;
+    notification_address(smoke, github_port)
+}
+
+/// What a sign-in does to the seeded account's notification address,
+/// under each answer the mock's `/user/emails` gives. The steps run in
+/// this order because the later ones need a stored address to keep.
+fn notification_address(smoke: &mut Smoke, github_port: u16) -> Result<()> {
+    const SMOKE: &str = r#""notification_email":"smoke@example.com""#;
+    const MOVED: &str = r#""notification_email":"moved@example.com""#;
+    step("a sign-in stores the verified primary address and keeps it through an outage");
+    // The primary entry is on the listing's second page.
+    signed_in_address(smoke, github_port, "listed", SMOKE)?;
+    // The same address again is no write: with every write of the
+    // column refused, the sign-in's batch still commits.
+    d1("CREATE TRIGGER smoke_refuse_notification_email \
+        BEFORE UPDATE OF notification_email ON users \
+        BEGIN SELECT RAISE(ABORT, 'smoke'); END")?;
+    let unchanged = signed_in_address(smoke, github_port, "listed", SMOKE);
+    d1("DROP TRIGGER smoke_refuse_notification_email")?;
+    unchanged?;
+    signed_in_address(smoke, github_port, "moved", MOVED)?;
+    // GitHub not answering, and a user who declined the scope, say
+    // nothing about the address: the stored one stands.
+    signed_in_address(smoke, github_port, "down", MOVED)?;
+    signed_in_address(smoke, github_port, "unscoped", MOVED)?;
+    // GitHub answering that the primary address is unverified clears it.
+    signed_in_address(
+        smoke,
+        github_port,
+        "unverified",
+        r#""notification_email":null"#,
+    )?;
+    mock_post(smoke, github_port, "/__emails/listed")
+}
+
+/// Signs the seeded account in under the mock's `emails` mode and
+/// expects `/api/v1/user`, read with the session that sign-in minted,
+/// to carry `expected`.
+fn signed_in_address(
+    smoke: &mut Smoke,
+    github_port: u16,
+    emails: &str,
+    expected: &str,
+) -> Result<()> {
+    mock_post(smoke, github_port, &format!("/__emails/{emails}"))?;
+    let block = callback_roundtrip(smoke)?;
+    expect_dashboard(
+        smoke,
+        &block,
+        &format!("a sign-in under '{emails}' e-mails"),
+    )?;
+    let cookie = minted_cookie(&block)?;
+    session_request(smoke, &cookie, "GET", "/api/v1/user", 200, &[], None)?;
+    smoke.expect_body(expected)
 }
 
 /// Drives `/api/auth/login` -> `/api/auth/callback` the way the claim
@@ -132,13 +197,7 @@ fn expect_dashboard(smoke: &Smoke, block: &str, what: &str) -> Result<()> {
 /// callback inserted must be the one the cookie names.
 fn minted_session_lifecycle(smoke: &mut Smoke, block: &str) -> Result<()> {
     step("a callback-minted session authenticates until it logs out");
-    let Some(value) = session_cookies(block).first().and_then(|line| {
-        let (_, rest) = line.split_once(": cabin_session=")?;
-        rest.split(';').next()
-    }) else {
-        bail!("the sign-in set no session cookie value");
-    };
-    let cookie = format!("cabin_session={}", value.trim());
+    let cookie = minted_cookie(block)?;
     session_request(smoke, &cookie, "GET", "/api/v1/user", 200, &[], None)?;
     smoke.expect_body(r#""github_id":0"#)?;
     session_request(
@@ -151,6 +210,17 @@ fn minted_session_lifecycle(smoke: &mut Smoke, block: &str) -> Result<()> {
         None,
     )?;
     session_request(smoke, &cookie, "GET", "/api/v1/user", 401, &[], None)
+}
+
+/// The `Cookie` header value for the session a callback minted.
+fn minted_cookie(block: &str) -> Result<String> {
+    let Some(value) = session_cookies(block).first().and_then(|line| {
+        let (_, rest) = line.split_once(": cabin_session=")?;
+        rest.split(';').next()
+    }) else {
+        bail!("the sign-in set no session cookie value");
+    };
+    Ok(format!("cabin_session={}", value.trim()))
 }
 
 /// Every `Set-Cookie` that stores a session (`Max-Age=0` clears one).
@@ -175,10 +245,15 @@ fn oauth_state_value(block: &str) -> String {
         .replace('\r', "")
 }
 
-/// The GitHub mock's `/user` sign-in modes; like the drift toggle,
-/// neither dev role, so addressed by port rather than a base.
+/// The GitHub mock's `/user` sign-in modes.
 fn signin_mode(smoke: &mut Smoke, github_port: u16, mode: &str) -> Result<()> {
-    let url = format!("http://127.0.0.1:{github_port}/__signin/{mode}");
+    mock_post(smoke, github_port, &format!("/__signin/{mode}"))
+}
+
+/// One of the GitHub mock's toggles; like the drift toggle, neither
+/// dev role, so addressed by port rather than a base.
+fn mock_post(smoke: &mut Smoke, github_port: u16, path: &str) -> Result<()> {
+    let url = format!("http://127.0.0.1:{github_port}{path}");
     let status = smoke.http("POST", &url, &[], None)?;
     if status >= 400 {
         bail!("POST {url} returned {status}");

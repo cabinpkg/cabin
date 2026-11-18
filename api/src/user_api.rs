@@ -7,12 +7,19 @@ use serde::Deserialize;
 
 use crate::quota::ClassQuotas;
 
-/// `GET /api/v1/user`: who the session belongs to.
-pub fn user_json(github_id: i64, login: &str, quota_class: &str) -> String {
+/// `GET /api/v1/user`: who the session belongs to, and the address its
+/// notices go to (`null` while the registry holds none).
+pub fn user_json(
+    github_id: i64,
+    login: &str,
+    quota_class: &str,
+    notification_email: Option<&str>,
+) -> String {
     serde_json::json!({
         "github_id": github_id,
         "login": login,
         "quota_class": quota_class,
+        "notification_email": notification_email,
     })
     .to_string()
 }
@@ -471,8 +478,8 @@ mod tests {
     #[test]
     fn user_json_is_the_documented_shape() {
         assert_eq!(
-            user_json(26_405_363, "ken-matsui", "default"),
-            r#"{"github_id":26405363,"login":"ken-matsui","quota_class":"default"}"#
+            user_json(26_405_363, "ken-matsui", "default", Some("ken@example.com")),
+            r#"{"github_id":26405363,"login":"ken-matsui","quota_class":"default","notification_email":"ken@example.com"}"#
         );
     }
 
