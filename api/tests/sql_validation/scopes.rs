@@ -269,7 +269,7 @@ fn membership_management_enforces_the_last_owner_rule() {
     assert!(bad_role.is_err(), "the role CHECK must refuse 'admin'");
     conn.execute(
         sql::ADD_SCOPE_MEMBER,
-        rusqlite::params!["fmtlib", 3, "admin"],
+        rusqlite::params!["fmtlib", 3, "admin", "2026-07-16T00:00:00.000Z", 30],
     )
     .expect("an ignored bad-role insert");
     assert_eq!(member_role(&conn, "fmtlib", 3), None);
@@ -277,7 +277,7 @@ fn membership_management_enforces_the_last_owner_rule() {
     // Only the owner role passes the management gate.
     conn.execute(
         sql::ADD_SCOPE_MEMBER,
-        rusqlite::params!["fmtlib", 3, "member"],
+        rusqlite::params!["fmtlib", 3, "member", "2026-07-16T00:00:00.000Z", 30],
     )
     .expect("add member");
     let owner_gate = |user_id: i64| -> i64 {
@@ -295,7 +295,7 @@ fn membership_management_enforces_the_last_owner_rule() {
     // here could demote the last owner.
     conn.execute(
         sql::ADD_SCOPE_MEMBER,
-        rusqlite::params!["fmtlib", 2, "member"],
+        rusqlite::params!["fmtlib", 2, "member", "2026-07-16T00:00:00.000Z", 30],
     )
     .expect("re-add owner");
     assert_eq!(member_role(&conn, "fmtlib", 2), Some("owner".to_owned()));
@@ -330,7 +330,7 @@ fn membership_management_enforces_the_last_owner_rule() {
     assert_eq!(removed, 0, "the last owner must survive removal");
     conn.execute(
         sql::ADD_SCOPE_MEMBER,
-        rusqlite::params!["fmtlib", 3, "owner"],
+        rusqlite::params!["fmtlib", 3, "owner", "2026-07-16T00:00:00.000Z", 30],
     )
     .expect("promote nobody");
     // User 3 is already a member: the add was ignored, so user 2 is
@@ -347,7 +347,7 @@ fn membership_management_enforces_the_last_owner_rule() {
     // With a genuine second owner the first one may leave.
     conn.execute(
         sql::ADD_SCOPE_MEMBER,
-        rusqlite::params!["fmtlib", 3, "owner"],
+        rusqlite::params!["fmtlib", 3, "owner", "2026-07-16T00:00:00.000Z", 30],
     )
     .expect("add second owner");
     let removed = conn

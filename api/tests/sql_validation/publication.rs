@@ -193,7 +193,15 @@ fn change(conn: &Connection, statement: &str, values: Vec<Value>, scope: &str) -
 /// A yank or un-yank of `alpha/pkg@1.0.0`, the flag bound as the
 /// number D1 binds.
 fn yank(conn: &Connection, yanked: f64) -> Vec<usize> {
-    let values = vec![yanked.into(), text("alpha"), text("pkg"), text("1.0.0")];
+    let values = vec![
+        yanked.into(),
+        text("alpha"),
+        text("pkg"),
+        text("1.0.0"),
+        text("2026-07-16T00:00:00.000Z"),
+        30.0.into(),
+        2.0.into(),
+    ];
     change(conn, sql::SET_VERSION_YANKED, values, "alpha")
 }
 

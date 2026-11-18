@@ -14,6 +14,7 @@ use serde_json::Value;
 use xtask_registry_admin::display;
 
 use crate::context::{Base, Smoke};
+use crate::legs::notifications::at_daily_limit;
 use crate::legs::session::{csrf_headers, expires_in_an_hour, session_cookie, session_request};
 use crate::step;
 use crate::text::{capture, contains, first_line, grep_lines, status_line_is, strip_name, text};
@@ -268,12 +269,17 @@ fn callback_refuses(smoke: &mut Smoke, cookie: &str, query: &str, expected: &str
 }
 
 fn members(smoke: &mut Smoke, cookie: &str) -> Result<()> {
-    step("scope owners list, add, and remove members");
+    step("scope owners list, add up to the scope's daily limit, and remove members");
     let list = "/api/v1/user/scopes/smoke/members";
     session_request(smoke, cookie, "GET", list, 200, &[], None)?;
     smoke.expect_body(r#""github_id":0"#)?;
     smoke.expect_body(r#""role":"owner""#)?;
     let add_member = br#"{"github_id":2,"role":"member"}"#;
+    at_daily_limit("member_added", "smoke", || {
+        let headers = csrf_headers();
+        session_request(smoke, cookie, "POST", list, 429, &headers, Some(add_member))?;
+        smoke.expect_body("scope_rate_limited")
+    })?;
     session_request(
         smoke,
         cookie,

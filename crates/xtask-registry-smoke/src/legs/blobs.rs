@@ -29,7 +29,7 @@ use serde_json::Value;
 use crate::bytes::{frame, retarget_hash, revision_of, sha256_hex, tamper_zip};
 use crate::context::Smoke;
 use crate::legs::finale::BREAKER_CRON;
-use crate::legs::notifications::expect_publications;
+use crate::legs::notifications::{expect_publications, expect_yank_sent};
 use crate::legs::revisions::{UNYANKED, YANKED};
 use crate::legs::session;
 use crate::servers::{d1, d1_quiet, d1_rows, delete_upload, stored_document, stored_upload};
@@ -433,7 +433,8 @@ fn cron_records_placed_archives(smoke: &mut Smoke) -> Result<()> {
 /// the last steps stand in for by ageing the open jobs, and never in a
 /// pass whose purge failed.  A served revision's mail to its publisher
 /// waits for that completion: no pass tries the mail while its change
-/// is open, and the pass that completes the changes sends it.
+/// is open, and the pass that completes the changes sends it.  A yank's
+/// own mail goes out with the next pass.
 fn index_holds_served_documents(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> Result<()> {
     step("INDEX holds the documents the read plane serves");
     let open_jobs = || d1_rows("SELECT 1 FROM publication_jobs WHERE completed_at IS NULL");
@@ -453,7 +454,7 @@ fn index_holds_served_documents(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> R
         "/api/v1/packages/{}/{}/{}/yank",
         inputs.scope, inputs.name, inputs.version
     );
-    for flag in [YANKED, UNYANKED] {
+    for (flag, mail) in [(YANKED, "version_yanked"), (UNYANKED, "version_unyanked")] {
         let recorded = open_jobs()?.len();
         smoke.wrequest("PATCH", &yank_path, flag, &[200])?;
         smoke.expect_body(r#""changed":true"#)?;
@@ -470,6 +471,8 @@ fn index_holds_served_documents(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> R
         if open_jobs()?.is_empty() {
             bail!("the cron completed a publication job that had not settled");
         }
+        // The change's own mail does not wait for its job.
+        expect_yank_sent(mail, inputs.scope, inputs.name, inputs.version)?;
         if stored_document(document, inputs.work)?.as_ref() != Some(&served) {
             bail!("INDEX does not hold the package document a yank changed");
         }

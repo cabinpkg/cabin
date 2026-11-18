@@ -888,6 +888,10 @@ applies to versions with at least one [**served**](#verification-lifecycle) revi
 with none was never part of the registry's resolvable surface, so there is nothing to retract and it
 answers an authenticated `404`.
 
+A yank is never rate limited.  An un-yank is: once an account's un-yanks of one scope's packages
+reach 30 in a UTC day, its further ones answer `429` with code
+[`scope_rate_limited`](#error-envelope) until the day rolls over.
+
 ### Yanking from the client
 
 `cabin yank` takes a strict `<scope>/<name>@<version>` spec - an exact scoped package name and an exact SemVer
@@ -1077,12 +1081,20 @@ changing it means changing it on GitHub and signing in again.  A sign-in that ca
 GitHub does not answer, or the grant does not carry the scope - leaves the stored address as it
 is; one that learns the account has no verified primary address any more removes it.
 
-The registry sends two notices: a message to the address when the account is created, and one
-to the account that published a revision, normally 15 to 30 minutes after the revision is first
-[served](#verification-lifecycle).  A revision published through
-[trusted publishing](#trusted-publishing) is published as an owner of the package's scope, and
-the message goes to that owner.  The messages come from `noreply@cabinpkg.com`.  An account
-with no address on file gets them after a later sign-in stores one.
+The registry sends a message to the address when the account is created, and afterwards when
+the account:
+
+- publishes a revision, normally 15 to 30 minutes after the revision is first
+  [served](#verification-lifecycle);
+- [yanks](#yank) or un-yanks a version;
+- claims a scope;
+- is added to a scope or removed from one, or owns a scope whose members change.
+
+A revision published through [trusted publishing](#trusted-publishing) is published as an owner
+of the package's scope, and the message goes to that owner.  The messages come from
+`noreply@cabinpkg.com`.  A message writes a `.` that comes before a letter in a version as `[.]`,
+as in `1.0.0-rc[.]final`, so that no pre-release label reads as a link.  An account with no
+address on file gets them after a later sign-in stores one.
 
 The address is not an identity.  Accounts stay keyed by the numeric GitHub id, two accounts
 may hold the same address, and nothing is granted, merged, or transferred because addresses
@@ -1103,7 +1115,7 @@ registry serves to others.
 | `404` | Request for an unknown package, version, or revision - including revisions that are not [served](#verification-lifecycle), which are indistinguishable from unknown ones: only a pending revision answers a token with the `verify` scope. |
 | `409` | Publish of different bytes for a version with a live revision and no `new-revision` opt-in; a revision-id collision between two different archives; a revival that lost a race or whose timestamp is not later than the rejected revision's; a new upload under a `Cabin-Upload-Id` that already names a different upload, or whose upload was rejected or has expired; an upload the registry released before its archive was stored (retry it under the same id); or a conflicting [verdict](#admin-api-scope-verify). |
 | `413` | The uploaded archive exceeds the per-archive size limit (envelope code `archive_too_large`). |
-| `429` | A rate limit: the publish token bucket is empty, or the per-client admission budget of the [trusted-publishing](#trusted-publishing) exchange, the verdict route, and the [login-session](#login-sessions) mint is spent (both code `rate_limited`); or the caller's daily allowance of registry-side archive reads is spent (code `read_rate_limited`).  Carries `Retry-After` (seconds) saying when the limit resets.  A publish is also refused while an upload allowance is spent: `daily_upload_limit_exceeded` carries `Retry-After` up to the next UTC midnight; `pending_limit_exceeded` carries none, because it clears as those uploads are verified or rejected. |
+| `429` | A rate limit: the publish token bucket is empty, or the per-client admission budget of the [trusted-publishing](#trusted-publishing) exchange, the verdict route, and the [login-session](#login-sessions) mint is spent (both code `rate_limited`); or the caller's daily allowance of registry-side archive reads is spent (code `read_rate_limited`); or a scope's daily limit of un-yanks is reached (code `scope_rate_limited`).  Carries `Retry-After` (seconds) saying when the limit resets.  A publish is also refused while an upload allowance is spent: `daily_upload_limit_exceeded` carries `Retry-After` up to the next UTC midnight; `pending_limit_exceeded` carries none, because it clears as those uploads are verified or rejected. |
 | `503` | The registry is protecting its own infrastructure budget (the hosted service blocks itself before provider limits or real spend are reached): its service-wide breaker tripped, or its per-request cost governor refused - or could not be reached - for the specific resource the request needed.  Writes refuse first; archive downloads refuse when the registry's read allowance for fresh storage reads is exhausted (recently downloaded archives can keep serving from the registry's edge cache through that), or service-wide when the registry's operator has paused reads outright.  Carries `Retry-After` (seconds) and the envelope code `registry_over_budget`.  The refusal is operator-side and temporary, so it is a `503` rather than a `402`: nothing the caller can pay clears it, and `503` has explicit `Retry-After` semantics where `402` has none. |
 
 ## Error envelope
@@ -1127,6 +1139,7 @@ before.  The defined codes:
 | --- | --- | --- |
 | `rate_limited` | `429` | The publish token bucket is empty, or the per-client admission budget of the exchange, verdict, and login-session mint routes is spent; `Retry-After` says when it refills. |
 | `read_rate_limited` | `429` | The caller's daily allowance of registry-side archive reads is spent; `Retry-After` reaches the next UTC day.  Cached downloads are unaffected. |
+| `scope_rate_limited` | `429` | The account's daily limit of [un-yanks](#yank) in the scope, or the scope's daily limit of member additions, is reached; `Retry-After` reaches the next UTC day.  Yanks and removals are never limited. |
 | `daily_upload_limit_exceeded` | `429` | A daily upload allowance is spent: the caller's, or the registry's shared one.  The error also carries `limit_kind` (`user_bytes`, `user_count`, `shared_bytes`, or `shared_count`), `limit`, `used`, and `reset_at`, the next UTC midnight, which `Retry-After` counts down to. |
 | `pending_limit_exceeded` | `429` | Too many of the caller's uploads await verification.  The error also carries `limit` and `used`, and no `Retry-After`: the limit clears as those uploads are verified or rejected. |
 | `archive_too_large` | `413` | The archive exceeds the per-archive size limit. |

@@ -105,7 +105,15 @@ fn scoped_statements_never_cross_scopes() {
     let changed = conn
         .execute(
             sql::SET_VERSION_YANKED,
-            rusqlite::params![1, "alpha", "pkg", "1.0.0"],
+            rusqlite::params![
+                1,
+                "alpha",
+                "pkg",
+                "1.0.0",
+                "2026-07-16T00:00:00.000Z",
+                30,
+                2
+            ],
         )
         .expect("yank alpha");
     assert_eq!(changed, 1);

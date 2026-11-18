@@ -94,10 +94,19 @@ statements! {
 
     /// Adds a member; an existing membership keeps its role (there is no
     /// role-change endpoint, and an upsert here could demote the last
-    /// owner).
+    /// owner). Nothing is added once the scope's additions of the UTC
+    /// day of `?4` owe `?5` mails (`quota::SCOPE_GRANT_MAILS_PER_DAY`):
+    /// [`NOTIFY_MEMBERSHIP`](super::notifications::NOTIFY_MEMBERSHIP)
+    /// records them in this statement's batch, under an event that
+    /// begins with the scope and the time, so no concurrent request
+    /// passes the bound.
     ADD_SCOPE_MEMBER =
         "INSERT OR IGNORE INTO scope_members (scope_name, user_id, role) \
-         VALUES (?1, ?2, ?3)";
+         SELECT ?1, ?2, ?3 \
+         WHERE (SELECT COUNT(*) FROM notifications \
+                WHERE kind = 'member_added' \
+                AND event >= ?1 || '@' || substr(?4, 1, 11) \
+                AND event < ?1 || '@' || substr(?4, 1, 10) || 'U') < ?5";
 
     /// Removes a member unless that would leave the scope ownerless: the
     /// last-owner rule is enforced inside the statement, so concurrent

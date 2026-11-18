@@ -34,6 +34,62 @@ statements! {
          WHERE r.scope = ?1 AND r.name = ?2 AND r.version = ?3 AND r.revision = ?4 \
          AND (SELECT changes()) = 1";
 
+    /// Owes account `?5` the mail of the yank (`?4` true) or un-yank
+    /// of version `(?1, ?2, ?3)` at `?6`. It runs in the batch that
+    /// sets the flag, directly after
+    /// [`SET_VERSION_YANKED`](super::packages::SET_VERSION_YANKED) and
+    /// the three statements that count the change, and does nothing
+    /// unless they recorded the change's job. The event is the scope,
+    /// the time, and the newest id the table held: `SET_VERSION_YANKED`
+    /// counts a day's un-yanks by the first two, and the id tells
+    /// apart two changes recorded in one millisecond, so each change
+    /// of the flag owes its own mail. The detail names no generation:
+    /// the read plane answers from the flag at once, and the mail does
+    /// not wait for the publish pass.
+    NOTIFY_VERSION_YANK =
+        "INSERT OR IGNORE INTO notifications (kind, event, recipient, detail, created_at) \
+         SELECT CASE WHEN ?4 THEN 'version_yanked' ELSE 'version_unyanked' END, \
+                ?1 || '@' || ?6 || '/' || (SELECT COALESCE(MAX(id), 0) FROM notifications), \
+                ?5, \
+                json_object('scope', ?1, 'name', ?2, 'version', ?3, 'at', ?6), ?6 \
+         WHERE (SELECT changes()) = 1";
+
+    /// Owes the mail of a change to scope `?1`'s members at `?5`:
+    /// account `?2` added with role `?6`, or removed when `?6` is
+    /// NULL, by account `?3`. It goes to `?2` and to every owner the
+    /// scope has after the change, each once: an owner the change
+    /// added or removed is `?2`. It runs directly after
+    /// [`ADD_SCOPE_MEMBER`](super::scopes::ADD_SCOPE_MEMBER) or
+    /// [`REMOVE_SCOPE_MEMBER`](super::scopes::REMOVE_SCOPE_MEMBER) in
+    /// one batch, and does nothing unless that changed a row. The
+    /// event is [`NOTIFY_VERSION_YANK`]'s, one for all the change's
+    /// mails: `ADD_SCOPE_MEMBER` counts a day's additions by its scope
+    /// and time. The detail names both accounts by their login under
+    /// provider `?4`.
+    NOTIFY_MEMBERSHIP =
+        "INSERT OR IGNORE INTO notifications (kind, event, recipient, detail, created_at) \
+         SELECT CASE WHEN ?6 IS NULL THEN 'member_removed' ELSE 'member_added' END, \
+                ?1 || '@' || ?5 || '/' || (SELECT COALESCE(MAX(id), 0) FROM notifications), \
+                id, \
+                json_object('scope', ?1, 'role', ?6, 'at', ?5, \
+                  'member', (SELECT login_snapshot FROM identities \
+                             WHERE user_id = ?2 AND provider = ?4), \
+                  'by', (SELECT login_snapshot FROM identities \
+                         WHERE user_id = ?3 AND provider = ?4)), ?5 \
+         FROM users \
+         WHERE (id = ?2 OR id IN ( \
+           SELECT user_id FROM scope_members WHERE scope_name = ?1 AND role = 'owner')) \
+         AND (SELECT changes()) = 1";
+
+    /// Owes account `?2` the mail of its claim of scope `?1` at `?3`.
+    /// It runs last in the claim's batch, after
+    /// [`RECORD_SCOPE_CLAIM`](super::scopes::RECORD_SCOPE_CLAIM), and
+    /// does nothing unless that recorded the claim.
+    NOTIFY_SCOPE_CLAIMED =
+        "INSERT OR IGNORE INTO notifications (kind, event, recipient, detail, created_at) \
+         SELECT 'scope_claimed', ?1 || '@' || ?3, ?2, json_object('scope', ?1, 'at', ?3), ?3 \
+         WHERE (SELECT changes()) = 1";
+
     /// Claims the one mail a pass sends next at `?1`, the oldest row
     /// that is owed one, counting the attempt before the send, and
     /// answers the row with the address its recipient has now. A row

@@ -69,9 +69,10 @@ Sign-in and `cabin login` ask GitHub for the `user:email` scope only, and the re
 account's verified primary address in `users.notification_email` as the
 address for notices about it (`src/notification_email.rs`;
 [`../docs/remote-registry.md`](../docs/remote-registry.md),
-"Notification address"). The sign-in that creates an account and the
-batch that records a revision's archive each record the mail they owe
-in `notifications`, and the cron sends what is owed
+"Notification address"). The batch that makes an event true - an
+account's creation, a revision's archive recorded, a change of a yank
+flag, a scope's claim, a member's addition or removal - records the
+mail it owes in `notifications`, and the cron sends what is owed
 (`src/notifications.rs`; [`docs/runbook.md`](docs/runbook.md),
 "Notifications").
 Package names are scoped (`<scope>/<name>`), and publish/yank
@@ -84,7 +85,9 @@ active admin of. The claim freezes the scope string to that account's
 **numeric** GitHub id forever - a later GitHub account reusing the
 login can never re-claim it, and disputes are handled manually by the
 operator. Scope owners manage members through the session API
-(members are added by GitHub numeric id and must have signed in once);
+(members are added by GitHub numeric id and must have signed in once,
+and a scope's additions stop at a daily limit,
+`quota::SCOPE_GRANT_MAILS_PER_DAY`);
 authorization consults only registry-side membership, never a live
 GitHub call, and the proof automation is GitHub-only by policy even
 though the schema is provider-neutral. Per-package ownership within a

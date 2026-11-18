@@ -51,7 +51,15 @@ fn download_counting_is_verified_only_and_scope_isolated() {
     // Yanked versions stay downloadable and keep counting.
     conn.execute(
         sql::SET_VERSION_YANKED,
-        rusqlite::params![1, "alpha", "pkg", "1.0.0"],
+        rusqlite::params![
+            1,
+            "alpha",
+            "pkg",
+            "1.0.0",
+            "2026-07-16T00:00:00.000Z",
+            30,
+            2
+        ],
     )
     .expect("yank alpha");
     conn.execute(
