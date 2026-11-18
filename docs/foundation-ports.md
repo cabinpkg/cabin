@@ -37,7 +37,7 @@ dependency field.
 ## Anatomy of a foundation port
 
 A port is an ordinary Cabin package directory: one `cabin.toml`, plus a `patches/` subdirectory
-when it declares any and a `tests/` consumer test when it has one.
+when it declares any and a `tests/` directory when it has tests.
 
 ```
 ports/<prefix>/<name>/<version>/
@@ -47,7 +47,8 @@ ports/<prefix>/<name>/<version>/
   patches/    - optional unified-diff files declared by
                    [package.upstream].patches
   tests/      - optional consumer test the preflight probe
-                   compiles and runs; never published
+                   compiles and runs, and probe packages;
+                   never published
 ```
 
 `<prefix>` is the first two characters of `<name>`, as in `ports/zl/zlib/1.3.1/`.
@@ -56,9 +57,9 @@ The manifest publishes **verbatim**, so its committed bytes are the published by
 edit changes the published archive.  Its identity must agree with the directory layout: `<name>/`
 fixes `[package].name` at exactly `cabin-ports/<name>`, so the directory is itself a valid package
 name, and `<version>/` fixes `[package].version`.  A port may declare only unconditional registry
-dependencies: no `system = true`, no path or workspace sources, and no `cfg(...)` dependency
-table, because publication ordering reads the declared edges without evaluating conditions.  The
-publisher refuses each of these with a message naming it.
+dependencies: no path or workspace sources, and no `cfg(...)` dependency table, because
+publication ordering reads the declared edges without evaluating conditions.  The publisher
+refuses each of these with a message naming it.
 
 ### Provenance
 
@@ -171,13 +172,18 @@ pin before use, so a stale or corrupt entry is a miss, never a substitution.
 - Not a submission queue.  New foundation ports require a curated review; this directory is
   intentionally small.
 - Not a vehicle for binary distribution.  Only source archives are supported.
-- Not a place for build scripts.  Ports describe libraries whose source layout
-  already fits Cabin's target model (a fixed list of sources plus include directories), optionally
-  placing a prebuilt file with a static `[[package.upstream.copy]]` step or correcting one with a
-  declared byte-exact patch.  A registry package's [build script](build-scripts.md) runs for whoever
-  depends on it, but no port carries one, so libraries that need configure-time generation, CMake /
-  Meson / Autotools driving, or custom build commands are not ported.  A port whose upstream archive
-  ships a root `build.c` or `build.cpp` deletes that file with a declared patch: the verifier
+- Not a place for a build script where a manifest can describe the library.  Most ports describe
+  a library whose source layout already fits Cabin's target model (a fixed list of sources plus
+  include directories), optionally placing a prebuilt file with a static
+  `[[package.upstream.copy]]` step or correcting one with a declared byte-exact patch.  A port
+  carries a [build script](build-scripts.md), which runs for whoever depends on it, only when that
+  model cannot build the library: its upstream build configures or generates what it compiles.
+  The script is the port's own file, added by a declared patch.  Such a port, where systems also
+  install the library, links
+  [the system's copy](build-scripts.md#a-package-for-a-system-library) by default and builds its
+  own sources under a feature named `vendored`; a library a manifest can describe is built from
+  its sources, whether or not systems install it.  A port whose upstream archive ships a root
+  `build.c` or `build.cpp` deletes or replaces that file with a declared patch: the verifier
   refuses an upstream file as a build script (`upstream_build_script`).
 - Not a variant-selection mechanism.  A published port carries whatever `[features]` its manifest
   declares (`cabin-ports/sqlite3` ships a `single-threaded` feature), but nothing in the port
@@ -197,7 +203,6 @@ publisher owns and clears that whole scratch root).
 | ``disagrees with its `<version>/` directory`` | `[package].version` does not equal the version directory's name. |
 | ``package directory `<name>/` `` | The port directory's name is not a valid package name (`[a-z0-9][a-z0-9_-]*`); the message suggests the lowercase spelling when that alone fixes it. |
 | `declares no [package.upstream] provenance` | The manifest has no provenance table; every port is materialized from a pinned upstream archive. |
-| `declares the system dependency` | A dependency sets `system = true`; a port resolving through host pkg-config would make its published build host-dependent. |
 | `depends on ... through a non-registry source` | A dependency uses a path or workspace source. |
 | ``may only depend on other `cabin-ports/*` packages`` | A registry dependency names a package outside the scope. |
 | `under a cfg-conditional table` | A dependency sits in a `[target.'cfg(...)'.dependencies]` table; ordering does not evaluate conditions. |
@@ -241,7 +246,8 @@ the manifest committed in it.  The rules that manifest must meet:
   the bare-package shorthand when the dependency exposes exactly one library-like target, or an
   explicit `package:target` selector otherwise.
 - **Order.**  Publication order derives from those declared edges (zlib publishes before libpng),
-  and they enter the cycle and satisfiability checks like any other package's.
+  and they enter the cycle and satisfiability checks like any other package's.  A port does not
+  yet take another port as a build dependency: `[build-dependencies]` does not order publication.
 
 Each version stands alone - published verbatim and probed on its own targets - so two versions of
 one port may expose different library targets.  The preflight probe links the library targets
@@ -255,13 +261,16 @@ Each probe compiles at the lowest standard the linked targets' declared interfac
 `c++17` when they declare no interface), except that an MSVC host raises a floor below C11 / C++14 to
 those: `cl.exe` has no `/std:` flag for C99 or C++11.
 
-`--dry-run` and `--publish` run the local preflight first: fetch or reuse every pinned upstream
+`--dry-run` and `--plan` run the local preflight: fetch or reuse every pinned upstream
 archive (SHA-256 verified, reusing the standard `<cache>/ports` archive cache), run the standard
 safe materialization pipeline (extraction, `strip-prefix`, copy steps, patches),
 package each port and publish it into a temporary file registry in publication order, and build
-every port against the generated packages.  A dry-run given `--changed-since <rev>` or
-`--port <name>` narrows that to a selection after validating the whole catalog (that repository's
-`docs/maintaining.md`, "Selective dry-runs"); `--publish` never narrows it.  The probe
+every port against the generated packages.  `--publish` stages the same way and builds nothing:
+it uploads only what a `--plan` of the same commit, in the same workflow run, has built (that
+repository's `docs/publishing.md`, "Execution boundaries").  A dry-run given
+`--changed-since <rev>` or `--port <name>` narrows that to a selection after validating the whole
+catalog (that repository's `docs/maintaining.md`, "Selective dry-runs"); `--plan` and `--publish`
+never narrow it.  The probe
 builds run in parallel, one worker per CPU
 with two build jobs each, each probe starting as soon as its port is staged; a failure still
 reports the earliest failing port in publication order, and a successful run ends with each phase's
@@ -272,26 +281,29 @@ archived manifest, source materialization, and compilation of every compiled lib
 Exercising a port's *API* (including its headers, calling its symbols) needs per-library
 knowledge a generic converter does not have, so that knowledge is committed in the port: a probe
 consumer compiles the port's `tests/main.cc` (or `tests/main.c` for the C consumer) when it has
-one, and an empty `main` otherwise; any other file in `tests/` except a dotfile (a misspelled name,
-or `main.c` for a port with no C consumer) fails the preflight rather than being
-skipped.  `--dry-run` then runs every probe, and a non-zero exit fails the preflight, so a consumer
-test is an ordinary program that returns non-zero on failure.  `--publish` builds the probes but
-never runs them: running upstream code in the job that holds the trusted-publishing OIDC token
-would hand that code the token, so running them is the pull-request dry-run's job.  Packaging
+one, and an empty `main` otherwise; any other entry of `tests/` except a dotfile or a probe
+package (a misspelled name, or `main.c` for a port with no C consumer) fails the preflight rather
+than being skipped.  `--dry-run` then runs every probe, and a non-zero exit fails the preflight,
+so a consumer test is an ordinary program that returns non-zero on failure.  A probe package is a
+directory of `tests/` that holds a `cabin.toml`: a whole package depending on the port, which only
+`--dry-run` builds, and runs the same way.  It is how a non-default feature, or the port as a
+[build dependency](dependency-kinds.md#build-dependencies), is checked.  `--plan` builds the
+probes but
+never runs them, and `--publish` builds nothing: a build runs a port's build script, and
+upstream code running in the job that holds the trusted-publishing OIDC token could take the
+token.  Running the probes is the pull-request dry-run's job.  Packaging
 copies only the manifest and its declared patches from the port directory, so `tests/` is never
 published: editing a test changes no archive bytes.
 
 ```console
 $ cargo run --locked -- --dry-run --cabin <cabin>
-$ cargo run --locked -- --publish --cabin <cabin> --index-url https://registry.cabinpkg.com
 ```
 
-Run them from a `cabin-ports/ports` checkout.  `<cabin>` is a `cabin` binary built from the Cabin
+Run it from a `cabin-ports/ports` checkout.  `<cabin>` is a `cabin` binary built from the Cabin
 commit the tool's own Cabin crates are pinned to; that repository's `CONTRIBUTING.md` ("Checks")
-has the commands that install it.
+has the commands that install it.  `--publish` runs only in that repository's publish workflow.
 
-`--dry-run` stops after the preflight.  `--publish` preflights every port (building, not
-running, the probes) and then uploads
+`--dry-run` and `--plan` stop after the preflight.  `--publish` uploads
 every package through the registry API in publication order, in consecutive batches of 50 (sized
 for the operator quota class's publish rate): each batch is one `cabin publish` invocation, which
 under GitHub Actions exchanges for its own trusted-publishing token and revokes it, best-effort, on
@@ -333,8 +345,8 @@ instead exchanges and immediately revokes a trusted-publishing token, proving th
 binding end to end while publishing nothing.  Upload jobs are serialized and queued, never
 cancelled; a whole-set run superseded by a newer commit on `main` skips its upload instead
 of immutably publishing an intermediate state, and the whole set is not published again until the
-next dispatch.  The check runs before the publish command's own preflight, which still takes
-minutes - a commit landing inside that residual window
+next dispatch.  The check runs before the publish command stages the ports again, which still
+takes minutes - a commit landing inside that residual window
 can make a stale run publish first, in which case the next dispatch's differing bytes land as a
 new packaging revision (see below) rather than overwriting anything, never silent divergence.
 Once that repository's receipts log exists, a run whose upload failed is not resumed by a rerun:
@@ -344,8 +356,8 @@ The publish job holds no long-lived credential: it grants `permissions: id-token
 `cabin publish` exchanges the run's own OIDC token for a short-lived registry token confined
 to the `cabin-ports` scope, revoking it on the way out (see
 [Trusted publishing](remote-registry.md#trusted-publishing); which workflows may exchange is
-operator-registered registry data).  Upstream archives restored from the CI cache are never trusted: the
-tool re-hashes every cached archive against the checksum its port's `[package.upstream]` pins,
+operator-registered registry data).  Upstream archives handed over by the job that built are never
+trusted: the tool re-hashes every one against the checksum its port's `[package.upstream]` pins,
 and re-downloads on a mismatch.  The `cabin-ports` GitHub organization owns that repository and
 is the registry scope's authority; registered trusted publishing admits only its `publish.yml`
 on `main`.
@@ -369,7 +381,8 @@ Because a whole-set publish always passes `--new-revision`, the merged change *i
 signal - including an edit to the committed manifest itself, which publishes verbatim.  A correction landing on `main` is by construction a deliberate respin,
 and a rerun over an unchanged tree still produces byte-identical archives and stays a no-op.  A
 respin may also correct what resolution consumes - the published package's `dependencies`,
-`features`, `standards`, or `links`: each revision keeps its own, so the old revision's pins keep
+`build-dependencies`, `build-script`, `features`, `standards`, or `links`: each revision keeps its
+own, so the old revision's pins keep
 their graph.  The package's index document then becomes schema 2, which earlier clients refuse
 rather than misread.
 
