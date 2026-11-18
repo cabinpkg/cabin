@@ -26,6 +26,11 @@
 //! fresh for it (`Minter`) - the registry consumes each token's `jti`
 //! on use, so no JWT can authenticate twice.
 //!
+//! A normal pass also checks the registry's cron from outside it (the
+//! crate's `cron` module): it reads the cron's state before the walk,
+//! prints what is wrong, and fails on it after the walk, so no pending
+//! version waits on the cron's health.
+//!
 //! A dispatched run can instead resolve ONE abstained version
 //! (`Resolution`, threaded through the `VERIFY_RESOLVE*` env vars):
 //! `verify` waives the name advisories and lets the real checks
@@ -98,6 +103,8 @@ use base64ct::{Base64UrlUnpadded, Encoding as _};
 use rand::seq::SliceRandom as _;
 use serde_json::{Map, Value};
 
+use crate::cron;
+
 /// A relative path resolved against the working directory, which is the
 /// repository root because the workflow runs the Cargo alias there.
 /// Deliberately not anchored to this crate's manifest directory: the
@@ -129,7 +136,8 @@ const MAX_REDIRECTS: usize = 50;
 /// # Errors
 ///
 /// If a request, a temporary file, a child process or a field read
-/// fails.  The diagnostics `abort` writes do not come back this way:
+/// fails, or the registry's cron is in trouble.  The diagnostics
+/// `abort` writes do not come back this way:
 /// they print bare and exit, so nothing prefixes them.
 pub fn run() -> Result<()> {
     // The privileged token travels to exactly two origins, and `ureq`
@@ -224,6 +232,15 @@ pub fn run_with(endpoints: Endpoints) -> Result<()> {
         abort("config.json api does not match the pinned verifier API origin");
     }
 
+    // Read, and what is wrong printed, before the walk; the run fails
+    // on it after the walk.  A dispatched resolution touches one
+    // version and reads nothing else.
+    let cron = if resolution.is_none() {
+        cron::check(plane.cron_state(&api_base))
+    } else {
+        Ok(())
+    };
+
     // The count as `length` renders it.  Only a count spelling the
     // integer zero is "nothing pending"; one that is no integer at all
     // - a float length, a multi-document listing, an empty body - still
@@ -240,7 +257,7 @@ pub fn run_with(endpoints: Endpoints) -> Result<()> {
         if count.parse::<i64>().ok() == Some(0) {
             println!("nothing pending");
             let _ = plane.revoke(&api_base);
-            return Ok(());
+            return cron;
         }
         println!("{count} pending version(s)");
     }
@@ -313,7 +330,7 @@ pub fn run_with(endpoints: Endpoints) -> Result<()> {
             "{failures} version(s) hit operational failures and stay pending"
         ));
     }
-    Ok(())
+    cron
 }
 
 /// The token plane: every request that carries the privileged
@@ -324,6 +341,11 @@ struct Plane {
     agent: ureq::Agent,
     token: String,
 }
+
+/// What the cron state's request may take, to connect and in all.  No
+/// version waits on that answer, so unlike the plane's other requests
+/// it has a deadline: a registry that stalls on it still gets its walk.
+const CRON_DEADLINE: Duration = Duration::from_secs(30);
 
 /// The token plane's agent: no redirect is followed, the connect
 /// ceiling is 300 seconds rather than `ureq`'s default 30, and there is
@@ -350,6 +372,23 @@ impl Plane {
             .into_reader()
             .read_to_end(&mut body)?;
         Ok(captured_bytes(&body))
+    }
+
+    /// The cron's state (`cron::check`), as the text that came:
+    /// [`captured_bytes`] would mend some answers that are no JSON into
+    /// ones that are.  On an agent of its own, because an agent's
+    /// connect ceiling outranks a request's deadline.
+    fn cron_state(&self, api_base: &str) -> Result<String> {
+        let agent = ureq::AgentBuilder::new()
+            .redirects(0)
+            .timeout_connect(CRON_DEADLINE)
+            .build();
+        Ok(agent
+            .get(&format!("{api_base}/api/v1/admin/cron"))
+            .timeout(CRON_DEADLINE)
+            .set("authorization", &format!("Bearer {}", self.token))
+            .call()?
+            .into_string()?)
     }
 
     /// The body straight to a file, never parsed here.  The corpus and

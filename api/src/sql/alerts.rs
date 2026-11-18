@@ -48,4 +48,15 @@ statements! {
            notified_level = CASE WHEN level > 0 THEN MIN(?2, level) ELSE ?2 END, \
            notified_at = ?3, attempts = 0 \
          WHERE kind = ?1 AND attempted_at = ?3";
+
+    /// What a check from outside the cron reads of the alert pass, as
+    /// of `?1`: the seconds since a pass last recorded its
+    /// observations (the `meta` key `?2`, which the pass writes in the
+    /// batch that records them), NULL when none has or the value is no
+    /// time; and the most passes in a row that any kind's mail has
+    /// failed.
+    ALERT_PASS_STATE =
+        "SELECT (SELECT unixepoch(?1) - unixepoch(value) FROM meta WHERE key = ?2) \
+                  AS checked_seconds, \
+                (SELECT COALESCE(MAX(attempts), 0) FROM alerts) AS mail_attempts";
 }

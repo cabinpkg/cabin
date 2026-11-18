@@ -23,6 +23,11 @@ pub const BACKOFF_MINUTES: u8 = 15;
 /// instead of sent at once.
 pub const PER_PASS: u8 = 10;
 
+/// The `meta` key under which a pass records, with each mail it
+/// records as sent, when that was. A check from outside the cron reads
+/// its age (`sql::NOTIFICATION_DELIVERY_STATE`).
+pub const SENT_META_KEY: &str = "notifications_sent_at";
+
 /// The `failure` of a send whose error carries no code.
 pub const UNKNOWN: &str = "unknown";
 

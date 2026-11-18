@@ -56,6 +56,11 @@ pub const RENOTIFY: &str = "-24 hours";
 /// [`RENOTIFY`]: an hour of the 15-minute cron.
 pub const ATTEMPTS: u8 = 4;
 
+/// The `meta` key under which a pass records, with its observations,
+/// when it made them. A check from outside the cron reads its age
+/// (`sql::ALERT_PASS_STATE`): no mail says that the pass has stopped.
+pub const PASS_META_KEY: &str = "alerts_checked_at";
+
 /// The one sender: the `NOTIFY_EMAIL` binding in `wrangler.jsonc`
 /// allows no other. The recipient is the `ALERT_RECIPIENT_EMAIL` secret.
 pub const SENDER: &str = "noreply@cabinpkg.com";

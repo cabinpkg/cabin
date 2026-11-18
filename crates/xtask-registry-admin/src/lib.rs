@@ -14,8 +14,9 @@
 //! output is a public CI log.  It prints
 //! package names and versions, which the admin API already discloses to
 //! any verify-scope holder, plus the verdicts and reason codes its own
-//! verifier run computes - and never the token, the corpus, or archive
-//! bytes.
+//! verifier run computes, and what is wrong with the registry's cron
+//! and its mail, in ages and counts - and never the token, the corpus,
+//! archive bytes, an account, or an address.
 //!
 //! D1 and the R2 object commands go through the pinned `wrangler`
 //! ([`wrangler`]), the only supported path to them from outside the
@@ -31,6 +32,7 @@ pub mod migrate;
 pub mod verify;
 pub mod wipe;
 
+mod cron;
 mod r2;
 #[cfg(test)]
 mod r2_mock;

@@ -1110,6 +1110,11 @@ identity for a token (`meta.verifier_seen_at`): it tells a verifier that has obt
 since (it did not run, or its exchange was refused) from one that
 runs and leaves the versions pending. It is not itself an alert.
 
+A normal pass also reads the cron's state and fails the run on
+trouble ("Alerts", the check from outside). It reads before it walks
+the pending versions and fails after, so the cron's trouble delays no
+verdict. A run that resolves one version does not read it.
+
 Per-version operational failures (a download error, a verifier crash,
 a `409` from the verdict PATCH because the version was republished
 between listing and verdict) leave that version pending and move on to
@@ -1273,6 +1278,57 @@ path is down and the row's latest change or reminder has not gone
 out), and the latest pass's summary. A failed mail undoes no publish,
 verdict or service mode, and the passes after it still run.
 
+**The check from outside.** A cron that has stopped mails nothing, and
+a mail path that is down carries no alert about itself. So each normal
+pass of the `registry-verify` workflow ("Verification pipeline") reads
+what the cron last recorded and fails its run on trouble, after the
+pending versions have had their pass. It reads
+`GET /api/v1/admin/cron` (Bearer, `verify` scope) with the run's own
+token. The route answers ages in seconds and counts, as of the request:
+it judges none of them, changes nothing, sends nothing, and names no
+account and no address. The run's log says what is wrong:
+
+| Log line | Read from | Means |
+| --- | --- | --- |
+| `cron: the alert pass has recorded no run`, or `... last recorded a run N minutes ago` | `alerts_checked_seconds`: the age of `meta.alerts_checked_at`, which a pass writes in the batch that records the kinds | no pass has recorded its observations for over 45 minutes, three runs: the cron is not running, or the pass fails before it records |
+| `cron: an alert's mail has failed N passes running` | `alert_mail_attempts`: the highest `alerts.attempts` | 4 or more: the mail path is down, and that row's latest change or reminder has not gone out |
+| `cron: a notification has waited N minutes for a pass to send it, and no pass is sending` | `notification_waiting_seconds`, and `notification_sent_seconds`: the age of `meta.notifications_sent_at`, which a pass writes with each mail it records as sent | a mail an account is owed has been due for over 45 minutes and none has been sent in the last 45 ("Notifications") |
+| `cron: a notification is unsent after N tries` | `notification_attempts` | a mail an account is owed has had 4 tries or more, three and a half hours of them |
+| `cron: the cron's state could not be read: ...` | the request | the route did not answer, or not with these fields: nothing is taken for healthy |
+
+Each line stays until what it reads changes, so a run can fail after
+its cause is repaired. The alert line stays until that row's next mail
+is accepted - after four failures the cron tries once every 24
+hours - or the kind changes level. The tries line stays until the
+row's next try sends its mail or the cron gives the row up: the fifth
+try comes four hours after the fourth, the eighth 32 hours after the
+seventh. With the mail path repaired, this has the cron try the alert
+rows at its next pass ("Notifications" has the statement for the
+accounts' mails):
+
+```sh
+node_modules/.bin/wrangler d1 execute DB --remote --command "
+  UPDATE alerts SET attempts = 0 WHERE attempts >= 4;"
+```
+
+The alert line counts a row's failures at one level: a kind that
+changes level starts its count over. A mail path that is down while a
+kind changes level within every four passes therefore shows only in
+the notification lines, and not at all while no account is owed a
+mail.
+
+The lines are printed where the pass reads the state, before its walk.
+A run with none of these logs `cron: the alert pass is recent and no
+mail is stuck`. The failed run is the signal, and GitHub reports it as
+it reports any failed run of a scheduled workflow. The schedule is
+best-effort ("Verification pipeline"), so trouble is seen at the next
+run GitHub starts, which can be hours later; a dispatched plain run
+checks at once. The pass gives the request for the cron's state up
+after 30 seconds, so a registry that stalls on it still gets its
+pending versions walked.
+`cargo registry-diagnose` prints `alerts_checked_at` and
+`notifications_sent_at` with the service state.
+
 ## Notifications
 
 The registry mails an account when something happens to it
@@ -1354,6 +1410,18 @@ last try there is no next one: the row is given up with no code, and
 the command below sends its mail again. A send the service answers
 with an error after it took the mail is tried again the same way.
 
+The check from outside ("Alerts") reads the mails that are still owed:
+the rows neither sent nor given up whose recipient has an address and
+which no open publication holds. It fails a run while one of them has
+been due to a pass for over 45 minutes and no mail has been sent in
+the last 45 - a burst that the passes are working through is not
+that - and while one has had 4 tries or more. A row is due from its
+creation, also when its account's address was recorded only later: a
+run in the minutes before the next pass sends such a mail can report
+it, and the run after that pass does not. A row the cron has given
+up is no longer owed and the check does not read it; the count below
+does.
+
 `cargo registry-diagnose` counts the rows by kind and state: `sent`,
 `queued` (not tried yet), `no address`, `awaiting publication` (the
 publish pass has not completed the revision's change), `retrying:
@@ -1371,6 +1439,11 @@ node_modules/.bin/wrangler d1 execute DB --remote --command "
   WHERE sent_at IS NULL AND failed_at IS NOT NULL
     AND attempted_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 minutes');"
 ```
+
+A row still retrying waits out its backoff, up to 32 hours, and the
+check from outside reports it from its fourth try on. The same
+statement with `failed_at IS NULL AND attempts > 0` in place of
+`failed_at IS NOT NULL` has the cron try those rows at its next pass.
 
 `sent` says the mail service accepted the mail. Whether the recipient's
 server took it is in the Cloudflare dashboard's Email Sending activity

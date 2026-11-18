@@ -406,7 +406,10 @@ pub(super) async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
 /// means the publication is, and no request errors over either. When
 /// the health read fails, `publication` is not recorded and its row
 /// keeps the level it had, while `verification` fires: an unreadable
-/// count must not pass as healthy. The claim counts the attempt
+/// count must not pass as healthy. The batch that records the kinds
+/// also records its own time (`alerts::PASS_META_KEY`), which is how a
+/// check from outside learns that the pass has stopped. The claim,
+/// last in that batch, counts the attempt
 /// before the mail is sent, and only a mail the binding accepted is
 /// recorded as delivered: a failed one, or one the `ALERT_RECIPIENT_EMAIL`
 /// secret gives no address for, is tried again by the next passes.
@@ -455,6 +458,7 @@ async fn report_alerts(
             publication.map(|alert| (alerts::CRITICAL, alert)),
         )?);
     }
+    statements.push(upsert_meta(db, alerts::PASS_META_KEY, now)?);
     statements.push(db.prepare(sql::CLAIM_ALERTS).bind(&[
         now.into(),
         alerts::RENOTIFY.into(),
@@ -558,24 +562,35 @@ async fn try_deliver_notifications(env: &Env, db: &D1Database) -> worker::Result
             }
             None => Err(notifications::UNREADABLE.to_owned()),
         };
+        let now = now_iso8601();
         let record = match &outcome {
-            Ok(message_id) => db.prepare(sql::MARK_NOTIFICATION_SENT).bind(&[
-                js_int(row.id),
-                now_iso8601().into(),
-                message_id.as_str().into(),
-            ]),
+            // The time goes in with the row, for the check from
+            // outside the cron (`notifications::SENT_META_KEY`).
+            Ok(message_id) => db
+                .prepare(sql::MARK_NOTIFICATION_SENT)
+                .bind(&[
+                    js_int(row.id),
+                    now.as_str().into(),
+                    message_id.as_str().into(),
+                ])
+                .and_then(|sent| {
+                    let at = upsert_meta(db, notifications::SENT_META_KEY, &now)?;
+                    Ok(vec![sent, at])
+                }),
             Err(failure) => {
                 console_error!("notification {} ({}) not sent: {failure}", row.id, row.kind);
-                db.prepare(sql::MARK_NOTIFICATION_FAILED).bind(&[
-                    js_int(row.id),
-                    failure.as_str().into(),
-                    js_int(i64::from(notifications::is_permanent(failure))),
-                    now_iso8601().into(),
-                ])
+                db.prepare(sql::MARK_NOTIFICATION_FAILED)
+                    .bind(&[
+                        js_int(row.id),
+                        failure.as_str().into(),
+                        js_int(i64::from(notifications::is_permanent(failure))),
+                        now.as_str().into(),
+                    ])
+                    .map(|failed| vec![failed])
             }
         };
         let recorded = match record {
-            Ok(record) => record.run().await.map(|_| ()),
+            Ok(record) => db.batch(record).await.map(|_| ()),
             Err(err) => Err(err),
         };
         if let Err(err) = recorded {

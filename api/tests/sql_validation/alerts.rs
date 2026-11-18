@@ -1,7 +1,7 @@
 //! Executed-semantics tests for `src/sql/alerts.rs`: which rows a cron
 //! pass claims for its mail, pass after pass.
 
-use cabin_api_worker::alerts::{ATTEMPTS, CRITICAL, Kind, RENOTIFY, WARNING};
+use cabin_api_worker::alerts::{ATTEMPTS, CRITICAL, Kind, PASS_META_KEY, RENOTIFY, WARNING};
 use cabin_api_worker::sql;
 use rusqlite::Connection;
 
@@ -76,6 +76,54 @@ fn mailed(conn: &Connection, minutes: u32, observed: &[(Kind, u8)]) -> Vec<Strin
 }
 
 const NONE: [&str; 0] = [];
+
+/// The alert pass's state as a check from outside reads it at
+/// `minutes`: `checked_seconds mail_attempts`.
+fn pass_state(conn: &Connection, minutes: u32) -> String {
+    conn.query_row(sql::ALERT_PASS_STATE, (at(minutes), PASS_META_KEY), |row| {
+        Ok(format!(
+            "{:?} {}",
+            row.get::<_, Option<i64>>(0)?,
+            row.get::<_, i64>(1)?
+        ))
+    })
+    .expect("ALERT_PASS_STATE")
+}
+
+/// The time a pass records with its observations, as
+/// `glue::cron::report_alerts` writes it.
+fn record_pass(conn: &Connection, value: &str) {
+    conn.execute(sql::UPSERT_META, (PASS_META_KEY, value))
+        .expect("UPSERT_META");
+}
+
+/// A check from outside reads how long ago a pass recorded its
+/// observations and how many passes in a row a mail has failed. A pass
+/// that never recorded one, or a value that is no time, reads as no
+/// age, never as a fresh one.
+#[test]
+fn the_pass_state_is_the_age_of_the_last_pass_and_its_failed_mails() {
+    let conn = migrated_connection();
+    assert_eq!(pass_state(&conn, 0), "None 0");
+    record_pass(&conn, &at(0));
+    assert_eq!(pass_state(&conn, 50), "Some(3000) 0");
+
+    // The most failures of any kind's mail, next to a kind whose
+    // mail went out.
+    mailed(&conn, 0, &[(Kind::Publication, WARNING)]);
+    failed(&conn, 15, &[(Kind::Verification, WARNING)]);
+    failed(&conn, 30, &[(Kind::Verification, WARNING)]);
+    record_pass(&conn, &at(30));
+    assert_eq!(pass_state(&conn, 30), "Some(0) 2");
+    mailed(&conn, 45, &[(Kind::Verification, WARNING)]);
+    assert_eq!(pass_state(&conn, 45), "Some(900) 0");
+    // A recovery's mail counts as a firing's does.
+    failed(&conn, 60, &[(Kind::Verification, 0)]);
+    assert_eq!(pass_state(&conn, 60), "Some(1800) 1");
+
+    record_pass(&conn, "soon");
+    assert_eq!(pass_state(&conn, 60), "None 1");
+}
 
 /// A kind is mailed when it first fires and once when it recovers, and
 /// not while it stays as it is; one that recovers before any mail went
