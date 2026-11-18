@@ -35,7 +35,11 @@ safe-outputs:
     max: 1
   set-issue-type:
     max: 1
+  # The detection job does not inherit the top-level `runs-on`.
+  threat-detection:
+    runs-on: ubuntu-26.04
 
+runs-on: ubuntu-26.04
 timeout-minutes: 10
 source: githubnext/agentics/workflows/issue-triage.md@4bc8419fad05e6b032741cbfd189986700bcf71c
 ---

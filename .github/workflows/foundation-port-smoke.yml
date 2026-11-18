@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   real-upstream-smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
 
     steps:
       - uses: actions/checkout@v7.0.1

@@ -33,6 +33,14 @@ their cargo aliases or established external tools directly.
 - Required contexts for gated work must be non-matrix `if: always()`
   aggregates that fail closed when the change gate or work job fails or is
   cancelled. Protect the aggregate, never a skippable work or matrix job.
+- Never select `ubuntu-latest`: moving to another Ubuntu release is a
+  reviewed change here. General Linux jobs run on `ubuntu-26.04`, and
+  lightweight jobs keep `ubuntu-slim`. Jobs on `ubuntu-24.04` or
+  `ubuntu-24.04-arm` keep that baseline, which release binaries, compiler
+  pins, caches, and measurements depend on, until a change moves it on
+  purpose. In `issue-triage.md`, set both `runs-on` and
+  `safe-outputs.threat-detection.runs-on`: the detection job does not
+  inherit the first.
 - `.github/workflows/actions.lock` is GitHub's workflow dependency lockfile:
   for each workflow it lists, the runner runs only the locked commit of each
   action, direct or transitive, and fails a job that uses an unlocked one.
