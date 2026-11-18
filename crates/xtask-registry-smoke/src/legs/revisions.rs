@@ -18,6 +18,7 @@ use xtask_registry_admin::{display, results};
 use crate::bytes::{frame, replace_all, retarget_hash, revision_of, sha256_hex, tamper_zip};
 use crate::context::{Base, Smoke};
 use crate::legs::anonymous::{SESSION_TOKENS_PATH, TRUSTPUB_TOKENS_PATH, uniform_401_with};
+use crate::legs::notifications::{at_daily_limit, at_scope_unyank_limit};
 use crate::servers::{d1, d1_json, d1_quiet};
 use crate::step;
 use crate::text::{capture, contains};
@@ -144,7 +145,9 @@ fn respin(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<()> {
 }
 
 fn yank_cycle(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &str) -> Result<()> {
-    step("yank and un-yank walk the state transitions");
+    step(
+        "yank and un-yank walk the state transitions, an un-yank up to its account's and its scope's daily limits",
+    );
     let yank_path = format!("{}/yank", inputs.publish_path);
     smoke.wrequest("PATCH", &yank_path, YANKED, &[200])?;
     smoke.expect_body(r#""yanked":true"#)?;
@@ -172,6 +175,16 @@ fn yank_cycle(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &str)
     smoke.expect_body(r#""yanked":true"#)?;
     // Yanked stays browsable in the source viewer, like the artifact route.
     session_request(smoke, inputs, "GET", source_path, 206, &suffix_range())?;
+    at_daily_limit("version_unyanked", inputs.scope, || {
+        smoke.wrequest("PATCH", &yank_path, UNYANKED, &[429])?;
+        smoke.expect_body("scope_rate_limited")
+    })?;
+    at_scope_unyank_limit(inputs.scope, || {
+        smoke.wrequest("PATCH", &yank_path, UNYANKED, &[429])?;
+        smoke.expect_body("scope_rate_limited")
+    })?;
+    smoke.check(inputs.package_path, &[200])?;
+    smoke.expect_body(r#""yanked":true"#)?;
     smoke.wrequest("PATCH", &yank_path, UNYANKED, &[200])?;
     smoke.expect_body(r#""yanked":false"#)?;
     smoke.expect_body(r#""changed":true"#)?;

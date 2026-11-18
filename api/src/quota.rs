@@ -213,6 +213,28 @@ pub const READ_RATE_LIMITED: Denial = Denial {
     code: "read_rate_limited",
     detail: "read rate limit exceeded; retry after the daily read allowance resets",
 };
+/// The mails one account's un-yanks in a scope, and separately the
+/// scope's member additions, may owe in a UTC day
+/// (`sql::SET_VERSION_YANKED`, `sql::ADD_SCOPE_MEMBER`): an un-yank
+/// owes its account one, an addition owes the new member and each
+/// owner one. Either change can be repeated without end, each time
+/// undone by a yank or a removal, which are never refused; unbounded,
+/// one account repeating it could fill the outbox that a cron pass
+/// sends `notifications::PER_PASS` mails from. The bound is on the
+/// repetition alone: it does not count what removals owe.
+pub const SCOPE_GRANT_MAILS_PER_DAY: u32 = 30;
+/// The mails all accounts' un-yanks in one scope may owe in a UTC day:
+/// three accounts' worth, so no single account can spend it, and
+/// adding members does not multiply what the scope can owe.
+pub const SCOPE_UNYANK_MAILS_PER_DAY: u32 = 3 * SCOPE_GRANT_MAILS_PER_DAY;
+/// [`SCOPE_GRANT_MAILS_PER_DAY`] or [`SCOPE_UNYANK_MAILS_PER_DAY`] is
+/// reached; `Retry-After` carries the seconds until the UTC day rolls
+/// over.
+pub const SCOPE_RATE_LIMITED: Denial = Denial {
+    status: 429,
+    code: "scope_rate_limited",
+    detail: "the daily limit for this change in the scope is reached; retry after the UTC day rolls over",
+};
 /// The pre-credential admission refusal on the two public OIDC
 /// endpoints and the session mint (`glue::bearer::oidc_admission`): one
 /// fixed shape for all three, decided before any credential is read, so

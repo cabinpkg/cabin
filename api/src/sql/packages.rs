@@ -44,9 +44,22 @@ statements! {
     /// of yank state. It changes a row only when the flag changes, which
     /// is what the statements after it in the batch count
     /// ([`ADVANCE_CATALOG_GENERATION`](super::publication::ADVANCE_CATALOG_GENERATION)).
+    /// A yank always applies. An un-yank does not once account `?7`'s
+    /// un-yanks in the scope on the UTC day of `?5` owe `?6` mails
+    /// (`quota::SCOPE_GRANT_MAILS_PER_DAY`), or all accounts' un-yanks
+    /// in it owe `?8` (`quota::SCOPE_UNYANK_MAILS_PER_DAY`):
+    /// [`NOTIFY_VERSION_YANK`](super::notifications::NOTIFY_VERSION_YANK)
+    /// records each in this statement's batch, for its account and
+    /// under an event that begins with the scope and the time, so no
+    /// concurrent request passes either bound.
     SET_VERSION_YANKED =
         "UPDATE versions SET yanked = ?1 \
-         WHERE scope = ?2 AND name = ?3 AND version = ?4 AND yanked != ?1";
+         WHERE scope = ?2 AND name = ?3 AND version = ?4 AND yanked != ?1 \
+         AND (?1 OR (SELECT COALESCE(SUM(recipient = ?7), 0) < ?6 AND COUNT(*) < ?8 \
+                     FROM notifications \
+                     WHERE kind = 'version_unyanked' \
+                     AND event >= ?2 || '@' || substr(?5, 1, 11) \
+                     AND event < ?2 || '@' || substr(?5, 1, 10) || 'U'))";
 
     /// The verifier's deterministic work list, filtered by status.
     /// One row per revision: a pending respin lists beside the

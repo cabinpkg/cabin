@@ -15,7 +15,7 @@ use crate::glue::{
     consume_one, error_body_response, error_response, governor_refusal_response, iso8601_from_ms,
     js_int, json_response_with_status, non_negative, now_epoch_ms, now_iso8601, write_gate,
 };
-use crate::governor::OpPool;
+use crate::governor::{OpPool, secs_to_next_utc_day};
 use crate::governor_client::{self, Gate};
 use crate::publish;
 use crate::{publication, quota, sql, upload, verify};
@@ -237,7 +237,10 @@ async fn is_scope_member(db: &D1Database, scope: &str, user_id: i64) -> worker::
 /// overrides the stored metadata's field from it. A change is recorded
 /// for the publish pass in the same batch. The request makes no R2
 /// call and draws nothing from the governor. Gated by the budget
-/// breaker (`503`) like publish; yank has no rate limit or quota.
+/// breaker (`503`) like publish. A yank has no rate limit or quota; an
+/// un-yank answers `429` once the account's un-yanks in the scope on
+/// the UTC day reach `quota::SCOPE_GRANT_MAILS_PER_DAY`, or all
+/// accounts' reach `quota::SCOPE_UNYANK_MAILS_PER_DAY`.
 /// The scope-membership gate (the uniform `403`) answers before the
 /// version lookup, so a non-member can never probe which versions exist
 /// under a foreign scope. Yank applies to served versions only: a
@@ -282,16 +285,48 @@ pub(super) async fn yank_response(
     }
     let mut changed = (existing.yanked != 0) != yanked;
     if changed {
+        let now = now_iso8601();
         let mut batch = vec![db.prepare(sql::SET_VERSION_YANKED).bind(&[
             i32::from(yanked).into(),
             scope.into(),
             name.into(),
             version.into(),
+            now.as_str().into(),
+            quota::SCOPE_GRANT_MAILS_PER_DAY.into(),
+            js_int(auth.user_id),
+            quota::SCOPE_UNYANK_MAILS_PER_DAY.into(),
         ])?];
-        batch.extend(document_changed(db, scope, name, &now_iso8601())?);
+        batch.extend(document_changed(db, scope, name, &now)?);
+        batch.push(db.prepare(sql::NOTIFY_VERSION_YANK).bind(&[
+            scope.into(),
+            name.into(),
+            version.into(),
+            i32::from(yanked).into(),
+            js_int(auth.user_id),
+            now.as_str().into(),
+        ])?);
+        batch.push(db.prepare(sql::VERSION_YANK_STATE).bind(&[
+            scope.into(),
+            name.into(),
+            version.into(),
+        ])?);
+        let results = db.batch(batch).await?;
         // The update is guarded on the flag: a concurrent request that
         // made the change first leaves this one a no-op.
-        changed = changed_rows(result(&db.batch(batch).await?, 0)?.meta()?) > 0;
+        changed = changed_rows(result(&results, 0)?.meta()?) > 0;
+        // The flag the batch left is the outcome: one that is not the
+        // request's is the daily limit refusing an un-yank.
+        let after: Vec<YankedRecord> = result(&results, 5)?.results()?;
+        if after
+            .first()
+            .is_some_and(|after| (after.yanked != 0) != yanked)
+        {
+            return denial_response(
+                env,
+                &quota::SCOPE_RATE_LIMITED,
+                Some(secs_to_next_utc_day(&now)),
+            );
+        }
     }
     // The resulting state, plus whether this request changed it (the
     // idempotent no-op reports `changed: false`).

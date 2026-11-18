@@ -3,12 +3,13 @@
 //! claim.
 
 use cabin_api_worker::notifications::{ATTEMPTS, BACKOFF_MINUTES, account_created, mail};
+use cabin_api_worker::quota::{SCOPE_GRANT_MAILS_PER_DAY, SCOPE_UNYANK_MAILS_PER_DAY};
 use cabin_api_worker::sql;
 use rusqlite::Connection;
 use rusqlite::types::Value;
 
 use crate::common::{
-    batch, migrated_connection, resolve, rows, seed_scope_collision, sign_in, verify_beta,
+    batch, count, migrated_connection, resolve, rows, seed_scope_collision, sign_in, verify_beta,
 };
 
 /// The time `minutes` after the first pass, as the cron's clock writes it.
@@ -136,24 +137,128 @@ fn place_beta(conn: &Connection, minutes: u32) -> Vec<usize> {
     .collect()
 }
 
-/// A yank of `scope/pkg@1.0.0`, as its request's batch records it.
-fn yank(conn: &Connection, scope: &str) {
+/// A user id as D1 binds it.
+fn real(user: i64) -> Value {
+    Value::Real(f64::from(i32::try_from(user).expect("a small id")))
+}
+
+/// The day's limit as D1 binds it.
+fn limit() -> Value {
+    Value::Real(f64::from(SCOPE_GRANT_MAILS_PER_DAY))
+}
+
+/// The batch `user`'s yank (`yanked`) or un-yank of `scope/pkg@1.0.0`
+/// runs at `minutes`; each statement's changed rows.
+fn set_yanked(conn: &Connection, scope: &str, yanked: bool, user: i64, minutes: u32) -> Vec<usize> {
     let package = || vec![text(scope), text("pkg")];
+    let flag = || Value::Real(f64::from(u8::from(yanked)));
     batch(
         conn,
         vec![
             (
                 sql::SET_VERSION_YANKED,
-                [vec![1.0.into()], package(), vec![text("1.0.0")]].concat(),
+                [
+                    vec![flag()],
+                    package(),
+                    vec![
+                        text("1.0.0"),
+                        text(&at(minutes)),
+                        limit(),
+                        real(user),
+                        Value::Real(f64::from(SCOPE_UNYANK_MAILS_PER_DAY)),
+                    ],
+                ]
+                .concat(),
             ),
             (sql::ADVANCE_CATALOG_GENERATION, vec![]),
             (sql::STAMP_PACKAGE_GENERATION, package()),
             (
                 sql::RECORD_PUBLICATION_JOB,
-                [package(), vec![text(&at(0))]].concat(),
+                [package(), vec![text(&at(minutes))]].concat(),
+            ),
+            (
+                sql::NOTIFY_VERSION_YANK,
+                [
+                    package(),
+                    vec![text("1.0.0"), flag(), real(user), text(&at(minutes))],
+                ]
+                .concat(),
             ),
         ],
+    )
+    .into_iter()
+    .map(|(changed, _)| changed)
+    .collect()
+}
+
+/// The batch that adds `member` to `fmtlib` with `role` or, with none,
+/// removes it, by `by` at `minutes`; each statement's changed rows.
+fn change_member(
+    conn: &Connection,
+    member: i64,
+    role: Option<&str>,
+    by: i64,
+    minutes: u32,
+) -> Vec<usize> {
+    let change = match role {
+        Some(role) => (
+            sql::ADD_SCOPE_MEMBER,
+            vec![
+                text("fmtlib"),
+                real(member),
+                text(role),
+                text(&at(minutes)),
+                limit(),
+            ],
+        ),
+        None => (sql::REMOVE_SCOPE_MEMBER, vec![text("fmtlib"), real(member)]),
+    };
+    let mail = (
+        sql::NOTIFY_MEMBERSHIP,
+        vec![
+            text("fmtlib"),
+            real(member),
+            real(by),
+            text("github"),
+            text(&at(minutes)),
+            role.map_or(Value::Null, text),
+        ],
     );
+    batch(conn, vec![change, mail])
+        .into_iter()
+        .map(|(changed, _)| changed)
+        .collect()
+}
+
+/// The scope `fmtlib`, owned by `owners`.
+fn fmtlib(conn: &Connection, owners: &[i64]) {
+    conn.execute(
+        "INSERT INTO scopes (name, proof_provider, proof_account_id, claimed_at) \
+         VALUES ('fmtlib', 'github', '7280970', ?1)",
+        [at(0)],
+    )
+    .expect("the scope");
+    for owner in owners {
+        conn.execute(
+            "INSERT INTO scope_members (scope_name, user_id, role) VALUES ('fmtlib', ?1, 'owner')",
+            [owner],
+        )
+        .expect("an owner");
+    }
+}
+
+/// The mail `mail` writes from the one row `filter` selects.
+fn mail_of(conn: &Connection, filter: &str) -> String {
+    let (kind, detail): (String, String) = conn
+        .query_row(
+            &format!("SELECT kind, detail FROM notifications WHERE {filter}"),
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("the row");
+    mail(&kind, &detail, "https://cabinpkg.com")
+        .expect("a mail")
+        .text
 }
 
 /// An account's creation owes that account one mail, however often it
@@ -474,9 +579,11 @@ fn a_publication_mail_waits_for_its_change_to_be_published() {
         ["Integer(0)"]
     );
 
-    // The placement took generation 1; the yanks take 2 and 3.
-    yank(&conn, "alpha");
-    yank(&conn, "beta");
+    // The placement took generation 1; the yanks take 2 and 3. Their
+    // own mails go to an account with no address, and so to no claim.
+    let hubot = create_account(&conn, "480938", "hubot");
+    assert_eq!(set_yanked(&conn, "alpha", true, hubot, 0), [1; 5]);
+    assert_eq!(set_yanked(&conn, "beta", true, hubot, 0), [1; 5]);
     let completed = conn
         .execute(
             sql::COMPLETE_PUBLICATION_JOBS,
@@ -492,4 +599,346 @@ fn a_publication_mail_waits_for_its_change_to_be_published() {
         ["Integer(2)", "Integer(3)"]
     );
     assert_eq!(claim(&conn, 15), ["2 owner@example.com"]);
+}
+
+/// A yank that changes the flag owes the account that made it one
+/// mail, and the un-yank after it another; a request that changes
+/// nothing owes none. The mail is owed at once: the job of its change
+/// is open, and the row is claimed all the same.
+#[test]
+fn a_changed_yank_owes_its_account_a_mail_at_once() {
+    let conn = migrated_connection();
+    seed_scope_collision(&conn);
+    set_address(&conn, 2, Some("owner@example.com"));
+    // The event is the scope, the time, and the id before the row's.
+    let yanks = "SELECT kind, event = 'alpha@' || created_at || '/' || (id - 1), recipient, \
+                        created_at \
+                 FROM notifications WHERE kind LIKE 'version_%' ORDER BY id";
+
+    assert_eq!(
+        set_yanked(&conn, "alpha", false, 2, 0),
+        [0; 5],
+        "not yanked"
+    );
+    assert!(rows(&conn, yanks).is_empty());
+
+    assert_eq!(set_yanked(&conn, "alpha", true, 2, 15), [1; 5]);
+    assert_eq!(
+        set_yanked(&conn, "alpha", true, 2, 16),
+        [0; 5],
+        "yanked already"
+    );
+    let yanked = format!(
+        r#"Text("version_yanked") | Integer(1) | Integer(2) | Text("{}")"#,
+        at(15)
+    );
+    assert_eq!(rows(&conn, yanks), std::slice::from_ref(&yanked));
+    assert!(
+        mail_of(&conn, "kind = 'version_yanked'")
+            .starts_with("alpha/pkg 1.0.0 was yanked under your account.\n")
+    );
+    assert_eq!(
+        rows(
+            &conn,
+            "SELECT generation FROM publication_jobs WHERE completed_at IS NULL"
+        ),
+        ["Integer(1)"]
+    );
+    assert_eq!(claim(&conn, 15), ["2 owner@example.com"]);
+
+    // Each change of the flag is an event of its own.
+    assert_eq!(set_yanked(&conn, "alpha", false, 2, 30), [1; 5]);
+    assert_eq!(set_yanked(&conn, "alpha", true, 2, 45), [1; 5]);
+    assert_eq!(
+        rows(&conn, yanks),
+        [
+            yanked,
+            format!(
+                r#"Text("version_unyanked") | Integer(1) | Integer(2) | Text("{}")"#,
+                at(30)
+            ),
+            format!(
+                r#"Text("version_yanked") | Integer(1) | Integer(2) | Text("{}")"#,
+                at(45)
+            ),
+        ]
+    );
+    assert!(
+        mail_of(&conn, "kind = 'version_unyanked'")
+            .starts_with("alpha/pkg 1.0.0 was un-yanked under your account.\n")
+    );
+
+    // So are changes recorded in one millisecond.
+    for yanked in [false, true, false] {
+        assert_eq!(set_yanked(&conn, "alpha", yanked, 2, 60), [1; 5]);
+    }
+    assert_eq!(rows(&conn, yanks).len(), 6);
+}
+
+/// A member's addition or removal owes a mail to the member and to
+/// each owner the scope has after it, one each, and a request that
+/// changes nothing owes none.
+#[test]
+fn a_membership_change_owes_the_member_and_each_owner_a_mail() {
+    let conn = migrated_connection();
+    let [mona, octocat, hubot, defunkt] = [
+        ("424242", "mona"),
+        ("583231", "octocat"),
+        ("480938", "hubot"),
+        ("2", "defunkt"),
+    ]
+    .map(|(account, login)| create_account(&conn, account, login));
+    fmtlib(&conn, &[mona, hubot]);
+    // A member who owns nothing is told of no change but its own.
+    conn.execute(
+        "INSERT INTO scope_members (scope_name, user_id, role) VALUES ('fmtlib', ?1, 'member')",
+        [defunkt],
+    )
+    .expect("a plain member");
+    // The recipients of the change recorded at `minutes`, in id order,
+    // under the one event of the change.
+    let told = |kind: &str, minutes: u32| {
+        let of_change = format!("kind = '{kind}' AND created_at = '{}'", at(minutes));
+        assert_eq!(
+            rows(
+                &conn,
+                &format!("SELECT COUNT(DISTINCT event) FROM notifications WHERE {of_change}")
+            ),
+            ["Integer(1)"]
+        );
+        rows(
+            &conn,
+            &format!("SELECT recipient FROM notifications WHERE {of_change} ORDER BY 1"),
+        )
+    };
+    let all = |users: &[i64]| -> Vec<String> {
+        let mut users = users.to_vec();
+        users.sort_unstable();
+        users
+            .iter()
+            .map(|user| format!("Integer({user})"))
+            .collect()
+    };
+    let changes = || count(&conn, "notifications") - 4;
+
+    assert_eq!(
+        change_member(&conn, octocat, Some("member"), mona, 15),
+        [1, 3]
+    );
+    assert_eq!(told("member_added", 15), all(&[mona, hubot, octocat]));
+    assert!(
+        mail_of(
+            &conn,
+            &format!("kind = 'member_added' AND recipient = {octocat}")
+        )
+        .starts_with(
+            "The GitHub account octocat was added to the Cabin scope fmtlib as member by mona.\n"
+        )
+    );
+    assert_eq!(
+        change_member(&conn, octocat, Some("owner"), mona, 16),
+        [0, 0],
+        "a member already"
+    );
+
+    assert_eq!(change_member(&conn, octocat, None, hubot, 30), [1, 3]);
+    assert_eq!(told("member_removed", 30), all(&[mona, hubot, octocat]));
+    assert!(
+        mail_of(
+            &conn,
+            &format!("kind = 'member_removed' AND recipient = {mona}")
+        )
+        .starts_with(
+            "The GitHub account octocat was removed from the Cabin scope fmtlib by hubot.\n"
+        )
+    );
+    assert_eq!(
+        change_member(&conn, octocat, None, hubot, 31),
+        [0, 0],
+        "no member"
+    );
+
+    // An owner the change added or removed is told once, as the member.
+    assert_eq!(
+        change_member(&conn, octocat, Some("owner"), mona, 45),
+        [1, 3]
+    );
+    assert_eq!(told("member_added", 45), all(&[mona, hubot, octocat]));
+    assert_eq!(change_member(&conn, hubot, None, hubot, 50), [1, 3]);
+    assert_eq!(told("member_removed", 50), all(&[mona, hubot, octocat]));
+    assert_eq!(change_member(&conn, octocat, None, mona, 55), [1, 2]);
+    assert_eq!(told("member_removed", 55), all(&[mona, octocat]));
+    assert_eq!(changes(), 14);
+
+    // The last owner stays, and a removal that removed nothing owes
+    // nothing.
+    assert_eq!(change_member(&conn, mona, None, mona, 60), [0, 0]);
+    assert_eq!(changes(), 14);
+
+    // Changes recorded in one millisecond are events of their own: the
+    // owner is told of the addition that came after the removal.
+    for role in [Some("member"), None, Some("owner")] {
+        assert_eq!(change_member(&conn, octocat, role, mona, 75), [1, 2]);
+    }
+    assert_eq!(changes(), 20);
+}
+
+/// A granted claim owes its account one mail, in the claim's batch.
+#[test]
+fn a_granted_claim_owes_its_account_one_mail() {
+    let conn = migrated_connection();
+    let mona = create_account(&conn, "424242", "mona");
+    let octocat = create_account(&conn, "583231", "octocat");
+    // The claim's batch as the callback runs it, for a limit of one
+    // scope an account.
+    let claim_scope = |scope: &str, user: i64, minutes: u32| -> Vec<usize> {
+        let skeleton = || text(&cabin_api_worker::names::skeleton(scope));
+        let (scope, now) = (|| text(scope), || text(&at(minutes)));
+        let limit = || Value::Real(1.0);
+        batch(
+            &conn,
+            vec![
+                (
+                    sql::CLAIM_SCOPE,
+                    vec![
+                        scope(),
+                        text("github"),
+                        text("7280970"),
+                        now(),
+                        real(user),
+                        limit(),
+                        skeleton(),
+                    ],
+                ),
+                (
+                    sql::SEED_CLAIM_OWNER,
+                    vec![scope(), real(user), limit(), skeleton()],
+                ),
+                (
+                    sql::RECORD_SCOPE_CLAIM,
+                    vec![scope(), real(user), now(), limit(), skeleton()],
+                ),
+                (sql::NOTIFY_SCOPE_CLAIMED, vec![scope(), real(user), now()]),
+            ],
+        )
+        .into_iter()
+        .map(|(changed, _)| changed)
+        .collect()
+    };
+    let claims =
+        "SELECT event, recipient, created_at FROM notifications WHERE kind = 'scope_claimed'";
+
+    assert_eq!(claim_scope("fmtlib", mona, 15), [1; 4]);
+    let owed = [format!(
+        r#"Text("fmtlib@{0}") | Integer({mona}) | Text("{0}")"#,
+        at(15)
+    )];
+    assert_eq!(rows(&conn, claims), owed);
+    assert!(
+        mail_of(&conn, "kind = 'scope_claimed'")
+            .starts_with("The Cabin scope fmtlib was claimed by your account.\n")
+    );
+
+    // A claim over the account's limit, and one of a name too like a
+    // claimed one, record nothing and owe nothing.
+    assert_eq!(claim_scope("boost", mona, 30), [0; 4]);
+    assert_eq!(claim_scope("fmt-lib", octocat, 30), [0; 4]);
+    assert_eq!(rows(&conn, claims), owed);
+}
+
+/// An account's un-yanks in a scope stop at the day's limit, which is
+/// the account's own, the scope's own and the day's own, and all
+/// accounts' stop at the scope's; yanks never stop.
+#[test]
+fn a_scopes_unyanks_of_a_day_are_bounded_and_its_yanks_are_not() {
+    let conn = migrated_connection();
+    seed_scope_collision(&conn);
+    // A day's limit of un-yanks under each name next to `alpha`, and
+    // alpha's own of the day before: none of them is alpha's today.
+    for prefix in [
+        "alph@2026-07-16",
+        "alpha-b@2026-07-16",
+        "alphaa@2026-07-16",
+        "alpha@2026-07-15",
+    ] {
+        for row in 0..SCOPE_GRANT_MAILS_PER_DAY {
+            conn.execute(
+                "INSERT INTO notifications (kind, event, recipient, detail, created_at) \
+                 VALUES ('version_unyanked', ?1, 2, '{}', ?2)",
+                (format!("{prefix}T23:{row:02}:00.000Z/{row}"), at(0)),
+            )
+            .expect("a neighbor's un-yank");
+        }
+    }
+
+    for change in 0..SCOPE_GRANT_MAILS_PER_DAY {
+        assert_eq!(set_yanked(&conn, "alpha", true, 2, change), [1; 5]);
+        assert_eq!(set_yanked(&conn, "alpha", false, 2, change), [1; 5]);
+    }
+    assert_eq!(set_yanked(&conn, "alpha", true, 2, 1439), [1; 5]);
+    assert_eq!(
+        set_yanked(&conn, "alpha", false, 2, 1439),
+        [0; 5],
+        "the day's limit"
+    );
+    // Two more accounts spend theirs, and that is the scope's limit.
+    let [hubot, octocat, defunkt] = [
+        ("480938", "hubot"),
+        ("583231", "octocat"),
+        ("9919", "defunkt"),
+    ]
+    .map(|(account, login)| create_account(&conn, account, login));
+    for account in [hubot, octocat] {
+        for _ in 0..SCOPE_GRANT_MAILS_PER_DAY {
+            assert_eq!(set_yanked(&conn, "alpha", false, account, 1439), [1; 5]);
+            assert_eq!(set_yanked(&conn, "alpha", true, account, 1439), [1; 5]);
+        }
+    }
+    assert_eq!(
+        set_yanked(&conn, "alpha", false, defunkt, 1439),
+        [0; 5],
+        "the scope's limit"
+    );
+    assert_eq!(set_yanked(&conn, "beta", true, 2, 1439), [1; 5]);
+    assert_eq!(set_yanked(&conn, "beta", false, 2, 1439), [1; 5]);
+    assert_eq!(set_yanked(&conn, "alpha", false, 2, 1440), [1; 5]);
+}
+
+/// A scope's additions stop once the day's owe the limit of mails; a
+/// removal is never refused.
+#[test]
+fn a_scopes_additions_of_a_day_are_bounded_and_its_removals_are_not() {
+    let conn = migrated_connection();
+    let [mona, octocat, hubot] = [
+        ("424242", "mona"),
+        ("583231", "octocat"),
+        ("480938", "hubot"),
+    ]
+    .map(|(account, login)| create_account(&conn, account, login));
+    fmtlib(&conn, &[mona]);
+
+    // Each addition owes two mails here: the member's and the owner's.
+    assert_eq!(change_member(&conn, hubot, Some("member"), mona, 0), [1, 2]);
+    let additions = SCOPE_GRANT_MAILS_PER_DAY.div_ceil(2);
+    for addition in 1..additions {
+        assert_eq!(
+            change_member(&conn, octocat, Some("member"), mona, addition),
+            [1, 2]
+        );
+        assert_eq!(change_member(&conn, octocat, None, mona, addition), [1, 2]);
+    }
+    assert_eq!(
+        change_member(&conn, octocat, Some("member"), mona, additions),
+        [0, 0],
+        "the day's limit"
+    );
+    assert_eq!(change_member(&conn, hubot, None, mona, 1439), [1, 2]);
+    assert_eq!(
+        change_member(&conn, hubot, Some("member"), mona, 1439),
+        [0, 0]
+    );
+    assert_eq!(
+        change_member(&conn, hubot, Some("member"), mona, 1440),
+        [1, 2]
+    );
 }

@@ -657,6 +657,11 @@ async fn persist_claim_grant(
                 claim_limit,
                 skeleton,
             ])?,
+            db.prepare(sql::NOTIFY_SCOPE_CLAIMED).bind(&[
+                scope.into(),
+                js_int(claimant.user_id),
+                claimed_at.as_str().into(),
+            ])?,
         ])
         .await;
     let results = match batch {
@@ -1158,10 +1163,35 @@ struct RoleRecord {
     role: String,
 }
 
+/// The statement that records the mails of a change to `scope`'s
+/// members (`sql::NOTIFY_MEMBERSHIP`): `member` added with `role` or,
+/// with none, removed, by `by`. It goes in the batch that makes the
+/// change, directly after it.
+fn membership_mail(
+    db: &D1Database,
+    scope: &str,
+    member: i64,
+    by: i64,
+    now: &str,
+    role: Option<&str>,
+) -> worker::Result<D1PreparedStatement> {
+    db.prepare(sql::NOTIFY_MEMBERSHIP).bind(&[
+        scope.into(),
+        js_int(member),
+        js_int(by),
+        GITHUB_PROVIDER.into(),
+        now.into(),
+        role.map_or(JsValue::NULL, JsValue::from),
+    ])
+}
+
 /// `POST /api/v1/user/scopes/<scope>/members`: add a member by GitHub
 /// numeric id. The account must already have signed in - membership rows
 /// key on the registry-native user - and an existing member keeps their
-/// role (there is no role-change endpoint).
+/// role (there is no role-change endpoint). An addition answers `429`
+/// once the scope's additions of the UTC day owe
+/// `quota::SCOPE_GRANT_MAILS_PER_DAY` mails; a removal is never
+/// refused for it.
 async fn add_scope_member(
     req: &mut Request,
     db: &D1Database,
@@ -1185,20 +1215,39 @@ async fn add_scope_member(
     else {
         return json_error(400, error::MEMBER_HAS_NO_ACCOUNT);
     };
-    db.prepare(sql::ADD_SCOPE_MEMBER)
-        .bind(&[
+    let now = now_iso8601();
+    db.batch(vec![
+        db.prepare(sql::ADD_SCOPE_MEMBER).bind(&[
             scope.into(),
             js_int(target_user_id),
             parsed.role.as_str().into(),
-        ])?
-        .run()
+            now.as_str().into(),
+            quota::SCOPE_GRANT_MAILS_PER_DAY.into(),
+        ])?,
+        membership_mail(db, scope, target_user_id, user_id, &now, Some(&parsed.role))?,
+    ])
+    .await?;
+    // The membership after the guarded INSERT is the outcome: none
+    // means the scope's daily limit refused the addition.
+    let after: Option<RoleRecord> = db
+        .prepare(sql::SCOPE_MEMBER_ROLE)
+        .bind(&[scope.into(), js_int(target_user_id)])?
+        .first(None)
         .await?;
-    let changed = existing_role.is_none();
-    let role = existing_role.unwrap_or(parsed.role);
+    let Some(RoleRecord { role }) = after else {
+        let denial = &quota::SCOPE_RATE_LIMITED;
+        let mut response = json_response(&error::envelope_with_code(denial.detail, denial.code))?
+            .with_status(denial.status);
+        response.headers_mut().set(
+            "retry-after",
+            &governor::secs_to_next_utc_day(&now).to_string(),
+        )?;
+        return Ok(response);
+    };
     json_response(&user_api::member_added_json(
         parsed.github_id,
         &role,
-        changed,
+        existing_role.is_none(),
     ))
 }
 
@@ -1226,10 +1275,12 @@ async fn remove_scope_member(
     if existing_role.is_none() {
         return json_response(&user_api::member_removed_json(github_id, false));
     }
-    db.prepare(sql::REMOVE_SCOPE_MEMBER)
-        .bind(&[scope.into(), js_int(target_user_id)])?
-        .run()
-        .await?;
+    db.batch(vec![
+        db.prepare(sql::REMOVE_SCOPE_MEMBER)
+            .bind(&[scope.into(), js_int(target_user_id)])?,
+        membership_mail(db, scope, target_user_id, user_id, &now_iso8601(), None)?,
+    ])
+    .await?;
     // The membership after the guarded DELETE is the outcome: still
     // present means the last-owner rule blocked it.
     let remaining: Option<RoleRecord> = db

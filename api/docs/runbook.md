@@ -1276,9 +1276,10 @@ verdict or service mode, and the passes after it still run.
 ## Notifications
 
 The registry mails an account when something happens to it
-(`src/notifications.rs`, `src/sql/notifications.rs`). Two events do
-so: an account's creation, at the sign-in that creates it, and a
-revision's publication. The D1 batch that makes an event true also
+(`src/notifications.rs`, `src/sql/notifications.rs`): an account's
+creation, at the sign-in that creates it; a revision's publication; a
+change of a version's yank flag; a scope's claim; and a member's
+addition to a scope or removal from it. The D1 batch that makes an event true also
 writes the mail it owes to the table `notifications`, so a recorded
 event always owes its mail and a failed request owes none. A row names
 the recipient's account and holds no address.
@@ -1289,12 +1290,36 @@ for a trusted publisher's upload is the scope owner the exchange minted
 the token for. The batch that records the revision's archive writes the
 row ("Upload lifecycle", archive placement), once per revision. A
 pending or rejected upload, and a verified one whose archive is not
-placed, owe nothing, and neither does a yank. The mail is not sent
+placed, owe nothing. The mail is not sent
 before the publish pass has completed the change that batch recorded
 (its `publication_jobs` row; "Upload lifecycle", the publish pass): the
 package's document and the catalog are in INDEX and purged, 15 to 30
 minutes after the archive is placed. A change the pass cannot complete
 holds its mail untried, and is the `publication` alert ("Alerts").
+
+A yank and an un-yank each owe one mail, to the account whose token
+made the request, when the request changed the flag; a request for the
+state the version already has owes none. A claim owes the claiming
+account one. A member's addition or removal owes one to that member and
+one to each owner the scope has after the change: the owner who made
+the change gets one, and an owner it removed gets theirs as the member.
+These mails wait for no publish pass. No route changes a member's role
+or transfers a scope, so no such mail exists, and a sign-in, a `cabin
+login` and a token exchange owe none.
+
+An un-yank and an addition can each be repeated without end, a yank
+undoing the one and a removal the other, so each is bounded
+(`quota::SCOPE_GRANT_MAILS_PER_DAY`, `quota::SCOPE_UNYANK_MAILS_PER_DAY`):
+once an account's un-yanks in a scope owe 30 mails in a UTC day, or all
+accounts' un-yanks in it owe 90, or the scope's additions owe 30 - an
+addition owes the member's and each owner's - the next one answers
+`429` with code `scope_rate_limited` until the day rolls over. The
+statement that makes the change counts the day's rows itself, so
+concurrent requests do not pass the bound. Without it, one account
+repeating a change could fill the outbox faster than the cron empties
+it. A yank and a removal are never refused, and the bound counts
+neither: members added over many days can all be removed in one, each
+removal owing the member's mail and each owner's.
 
 Every cron pass sends up to 10 of the mails owed, the oldest first and
 one at a time, each to the address its recipient's account holds as the
@@ -1303,7 +1328,8 @@ mail goes out (`users.notification_email`; "Logs"), from `Cabin
 binding ("Alerts"). A mail whose account has no address is not tried
 and spends no attempt: it waits, and takes its turn among the mails
 owed once the account's owner signs in with a verified primary address
-on GitHub. Nothing a request sends chooses a recipient. The mails of
+on GitHub. No request names an address: the most one names is an
+account, the member an owner adds or removes. The mails of
 many revisions published at once go out at that rate, 960 a day.
 
 A mail is recorded as sent, with the mail service's message id, only
