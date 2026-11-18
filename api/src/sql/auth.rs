@@ -64,9 +64,18 @@ statements! {
 
     /// An external identity's registry-native user row.
     USER_BY_IDENTITY =
-        "SELECT i.user_id, i.login_snapshot, u.quota_class \
+        "SELECT i.user_id, i.login_snapshot, u.quota_class, u.notification_email \
          FROM identities i JOIN users u ON u.id = i.user_id \
          WHERE i.provider = ?1 AND i.provider_account_id = ?2";
+
+    /// Stores what a sign-in read as the identity's notification
+    /// address (`crate::notification_email`), NULL for none. Runs in
+    /// the sign-in's batch after the identity upsert, so it reaches a
+    /// user that batch created too, and only when the value changes.
+    SET_NOTIFICATION_EMAIL =
+        "UPDATE users SET notification_email = ?3 \
+         WHERE id = (SELECT user_id FROM identities \
+                     WHERE provider = ?1 AND provider_account_id = ?2)";
 
     /// The browser session's user resolution, run on every session-plane
     /// request: [`USER_BY_IDENTITY`] for the sealed cookie's account,
@@ -75,7 +84,7 @@ statements! {
     /// same no-row answer as an unknown identity, in the same single
     /// read.
     SESSION_USER =
-        "SELECT i.user_id, i.login_snapshot, u.quota_class \
+        "SELECT i.user_id, i.login_snapshot, u.quota_class, u.notification_email \
          FROM browser_sessions s \
          JOIN identities i ON i.provider = ?1 AND i.provider_account_id = s.provider_account_id \
          JOIN users u ON u.id = i.user_id \

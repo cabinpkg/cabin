@@ -18,6 +18,7 @@ pub mod documents;
 pub mod error;
 pub mod governor;
 pub mod names;
+pub mod notification_email;
 pub mod publication;
 pub mod publish;
 pub mod quota;

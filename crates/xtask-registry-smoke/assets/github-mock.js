@@ -99,6 +99,27 @@ const signinUsers = () => {
     "fresh-old": { id: 4, login: "veteran", created_at: "2008-01-14T04:33:35Z" },
   };
 };
+// GET /user/emails, which a sign-in reads for the account's
+// notification address. POST /__emails/<mode> swaps the listing:
+// "listed" (the default) puts the verified primary address on the
+// second page, behind a full page of secondary ones; "down" answers
+// 500; and "unscoped" is a user who declined user:email - the code
+// exchange grants no scope, and the listing stays readable so that a
+// registry which read it anyway would be caught storing it.
+let emails = "listed";
+const secondary = (n) => ({ email: `old${n}@example.com`, primary: false, verified: true, visibility: null });
+const primary = (email, verified) => ({ email, primary: true, verified, visibility: "private" });
+const listed = [
+  Array.from({ length: 100 }, (_, n) => secondary(n)),
+  [secondary(100), primary("smoke@example.com", true)],
+];
+const emailPages = {
+  listed,
+  unscoped: listed,
+  moved: [[secondary(0), primary("moved@example.com", true)]],
+  unverified: [[primary("smoke@example.com", false), secondary(0)]],
+  down: null,
+};
 // The Cloudflare purge API, which the registry reaches through
 // CLOUDFLARE_API_BASE: POST /zones/smoke-zone/purge_cache records the
 // URLs it accepted and GET /__purge/urls lists them. POST /__purge/fail
@@ -118,6 +139,15 @@ http.createServer((req, res) => {
       return;
     }
     signin = mode;
+    res.end("{}");
+  } else if (req.method === "POST" && req.url.startsWith("/__emails/")) {
+    const mode = req.url.slice("/__emails/".length);
+    if (!(mode in emailPages)) {
+      res.statusCode = 404;
+      res.end(JSON.stringify({ message: "unknown emails mode" }));
+      return;
+    }
+    emails = mode;
     res.end("{}");
   } else if (req.method === "POST" && (req.url === "/__purge/fail" || req.url === "/__purge/ok")) {
     purgeFails = req.url === "/__purge/fail";
@@ -200,8 +230,21 @@ http.createServer((req, res) => {
         res.end(JSON.stringify({ error: "redirect_uri_mismatch" }));
         return;
       }
-      res.end(JSON.stringify({ access_token: "gho_smoke", token_type: "bearer" }));
+      const scope = emails === "unscoped" ? "" : "user:email";
+      res.end(JSON.stringify({ access_token: "gho_smoke", token_type: "bearer", scope }));
     });
+  } else if (req.method === "GET" && req.url.startsWith("/user/emails?")) {
+    const query = new URL(req.url, "http://127.0.0.1").searchParams;
+    const pages = emailPages[emails];
+    if (req.headers.authorization !== "Bearer gho_smoke") {
+      res.statusCode = 401;
+      res.end(JSON.stringify({ message: "Requires authentication" }));
+    } else if (!pages || query.get("per_page") !== "100") {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ message: "Server Error" }));
+    } else {
+      res.end(JSON.stringify(pages[Number(query.get("page")) - 1] || []));
+    }
   } else if (req.method === "GET" && api[req.url]) {
     if (!/^Bearer gho_smoke$/.test(req.headers.authorization || "")) {
       res.statusCode = 401;

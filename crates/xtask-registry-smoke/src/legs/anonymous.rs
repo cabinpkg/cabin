@@ -613,13 +613,13 @@ fn oauth_plane(smoke: &mut Smoke, github_port: u16) -> Result<()> {
             capture(&smoke.headers)
         );
     }
-    // Ordinary sign-in requests no OAuth scopes; only the claim flow does.
-    if grep_lines(&block, "location: ")
+    // Sign-in asks for the one scope the notification address needs.
+    if !grep_lines(&block, "location: ")
         .iter()
-        .any(|line| line.contains("scope="))
+        .any(|line| line.contains("&scope=user%3Aemail&"))
     {
         bail!(
-            "/api/auth/login must not request an oauth scope: {}",
+            "/api/auth/login must request exactly user:email: {}",
             capture(&smoke.headers)
         );
     }

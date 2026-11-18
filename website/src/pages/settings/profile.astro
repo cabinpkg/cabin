@@ -1,7 +1,8 @@
 ---
 // Read-only: the registry stores nothing editable about the
 // account beyond what GitHub provides, so this page shows the GitHub
-// identity and the quota class, and points at GitHub for the rest.
+// identity, the quota class, and the address notices go to, and points
+// at GitHub for the rest.
 import AccountShell from "../../components/account/AccountShell.astro";
 import BaseLayout from "../../layouts/BaseLayout.astro";
 import Icon from "../../components/Icon.astro";
@@ -56,11 +57,21 @@ const valueClass = "font-mono text-sm text-ink";
                     <span class={labelClass}>Quota class</span>
                     <span class={valueClass} data-profile-quota-class></span>
                 </div>
+                <div class={rowClass}>
+                    <span class={labelClass}>Notification email</span>
+                    <span
+                        class={valueClass}
+                        data-profile-notification-email></span>
+                </div>
             </div>
             <p class="mt-4 text-sm text-ink-muted">
                 The registry identifies you by your numeric GitHub id and
-                keeps nothing else editable here. Name, email, and avatar
-                come from your GitHub account.
+                keeps nothing editable here. Name and avatar come from
+                your GitHub account. The registry keeps its verified
+                primary email as the address for notices about your
+                account, reads it when you sign in, and shows it to no
+                one else. To change it, or when none is on file, set a
+                verified primary email on GitHub and sign in again.
             </p>
             <div class="mt-4">
                 <ExternalLink

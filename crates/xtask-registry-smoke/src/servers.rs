@@ -306,9 +306,10 @@ fn seed_sql(hash: &str, verify_hash: &str, noverify_hash: &str, outsider_hash: &
     DELETE FROM scope_claims WHERE scope_name IN
       ('smoke', 'smokeorg', 'denyorg', 'imposterorg', 'swaporg', 'statedrift',
        'core', 'sm0keorg');
-    -- A prior run that stopped inside the last-use leg leaves its
-    -- refusing trigger behind.
+    -- A prior run that stopped inside the last-use leg or the
+    -- notification-address leg leaves its refusing trigger behind.
     DROP TRIGGER IF EXISTS smoke_refuse_last_use;
+    DROP TRIGGER IF EXISTS smoke_refuse_notification_email;
     -- A prior run that failed inside a breaker leg leaves its pinned
     -- mode behind; normalize so re-runs never start blocked.
     UPDATE meta SET value = 'normal' WHERE key = 'service_mode';"#

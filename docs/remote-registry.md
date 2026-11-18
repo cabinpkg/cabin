@@ -1062,6 +1062,25 @@ is deleted and the answer is `204`.  Anything else answers the uniform `401`, wh
 a repeated `DELETE` idempotent - the same contract as the
 [trusted-publishing revocation](#revoking-the-exchanged-token).
 
+## Notification address
+
+The hosted registry keeps one notification address per account, for notices about that
+account: the verified primary email address of the account's GitHub account.  The website's
+sign-in asks GitHub for the `user:email` scope and nothing else, reads the account's addresses,
+and stores only the one GitHub marks both primary and verified.  An account without one still
+signs in and has no address on file.
+
+Every later sign-in on the website reads the address again, so changing it means changing it
+on GitHub and signing in again.  A sign-in that cannot read it - GitHub does not answer, or
+the scope was not granted - leaves the stored address as it is; one that learns the account
+has no verified primary address any more removes it.
+
+The address is not an identity.  Accounts stay keyed by the numeric GitHub id, two accounts
+may hold the same address, and nothing is granted, merged, or transferred because addresses
+match.  It is shown only to its own account, on the website's profile page, and never appears
+in the package index, the [catalog](#the-catalog), package metadata, or anything else the
+registry serves to others.
+
 ## Status codes
 
 | Code | Meaning |

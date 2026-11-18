@@ -840,6 +840,92 @@ fn expiry_timestamps_must_be_the_fixed_width_iso_shape() {
     .expect("the canonical shape is admitted");
 }
 
+/// The notification address the two session-plane reads return for an
+/// account, which must agree: [`sql::USER_BY_IDENTITY`] (the sign-in's
+/// comparison) and [`sql::SESSION_USER`] (the profile's answer).
+fn notification_email(conn: &rusqlite::Connection, account_id: &str) -> Option<String> {
+    let by_identity: Option<String> = conn
+        .query_row(sql::USER_BY_IDENTITY, ["github", account_id], |row| {
+            row.get("notification_email")
+        })
+        .expect("resolve identity");
+    start_browser_session(conn, "address-read", account_id, 0.0);
+    let by_session: Option<String> = conn
+        .query_row(
+            sql::SESSION_USER,
+            ["github", account_id, "address-read"],
+            |row| row.get("notification_email"),
+        )
+        .expect("resolve session");
+    conn.execute("DELETE FROM browser_sessions WHERE id = 'address-read'", [])
+        .expect("drop the session");
+    assert_eq!(by_identity, by_session);
+    by_identity
+}
+
+fn set_notification_email(
+    conn: &rusqlite::Connection,
+    account_id: &str,
+    address: Option<&str>,
+) -> usize {
+    conn.execute(
+        sql::SET_NOTIFICATION_EMAIL,
+        rusqlite::params!["github", account_id, address],
+    )
+    .expect("set the notification address")
+}
+
+#[test]
+fn a_notification_address_is_stored_for_the_signing_in_account_only() {
+    let conn = migrated_connection();
+    // The sign-in that creates the account stores the address in the
+    // same batch: the statement finds the user through the identity
+    // row the batch has just inserted.
+    sign_in(
+        &conn,
+        "github",
+        "424242",
+        "mona",
+        "2026-07-15T00:00:00.000Z",
+    );
+    assert_eq!(notification_email(&conn, "424242"), None);
+    assert_eq!(
+        set_notification_email(&conn, "424242", Some("mona@example.com")),
+        1
+    );
+    assert_eq!(
+        notification_email(&conn, "424242").as_deref(),
+        Some("mona@example.com")
+    );
+
+    // A second account may hold the same address: it is no identity.
+    sign_in(
+        &conn,
+        "github",
+        "583231",
+        "octocat",
+        "2026-07-15T01:00:00.000Z",
+    );
+    assert_eq!(
+        set_notification_email(&conn, "583231", Some("mona@example.com")),
+        1
+    );
+
+    // Clearing one account's address leaves the other's.
+    assert_eq!(set_notification_email(&conn, "424242", None), 1);
+    assert_eq!(notification_email(&conn, "424242"), None);
+    assert_eq!(
+        notification_email(&conn, "583231").as_deref(),
+        Some("mona@example.com")
+    );
+
+    // An account that never signed in has no row to write.
+    assert_eq!(
+        set_notification_email(&conn, "999999", Some("ghost@example.com")),
+        0
+    );
+}
+
 /// One browser sign-in's session statements, as the OAuth callback
 /// batches them after the identity upsert: the prune, then the insert.
 /// The seconds bind as REAL, the way every D1 number does.

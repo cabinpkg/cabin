@@ -1360,6 +1360,15 @@ token hashes are never logged. The dashboard's stored logs are a sample:
 about one request in ten, and every line of a request it drops - an
 internal error or a refusal reason included - is absent.
 
+A sign-in that reads no notification address
+(`docs/remote-registry.md`, "Notification address") logs
+`sign-in: no notification address read: <reason>` - the scope was not
+granted, the read failed, the primary address is unverified, or there
+is none usable - and never an address or the account. The stored state
+is `users.notification_email`: NULL is an account with no address on
+file until its owner signs in again with a verified primary address on
+GitHub.
+
 For an incident report or a bug thread, `cargo registry-diagnose`, run from
 the repository root, gathers
 the shareable aggregate state in one pass - config and stamp status,

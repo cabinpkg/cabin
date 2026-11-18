@@ -21,8 +21,8 @@ use crate::routes::{
     LOGIN_DENIED_REDIRECT, POST_LOGIN_REDIRECT, STATS_PATH, SessionRoute, WebRoute,
 };
 use crate::{
-    auth, breaker, claim, error, governor, governor_client, names, quota, session, signup, source,
-    sql, stats, user_api,
+    auth, breaker, claim, error, governor, governor_client, names, notification_email, quota,
+    session, signup, source, sql, stats, user_api,
 };
 
 /// The one identity provider policy admits today; the `identities`
@@ -82,6 +82,7 @@ pub async fn respond_session(
             session.github_id,
             &user.login_snapshot,
             &user.quota_class,
+            user.notification_email.as_deref(),
         )),
         (SessionRoute::Usage, Method::Get) => usage(&db, user).await,
         (SessionRoute::Packages, Method::Get) => list_packages(&db, user.user_id).await,
@@ -223,8 +224,9 @@ async fn logout(
 }
 
 /// `GET /api/auth/login`: mint a random `state`, seal it into a short-lived cookie,
-/// and send the browser to GitHub's authorize page. No extra OAuth scopes:
-/// the public profile is all the callback reads.
+/// and send the browser to GitHub's authorize page. The one OAuth scope
+/// asked for is `user:email`: the callback reads the public profile and
+/// the account's verified primary address ([`notification_email`]).
 fn login(env: &Env) -> worker::Result<Response> {
     let client_id = env.secret("GITHUB_CLIENT_ID")?.to_string();
     let state = auth::hex(&random_bytes::<16>()?);
@@ -242,10 +244,11 @@ fn login(env: &Env) -> worker::Result<Response> {
     // The explicit redirect_uri (recommended by GitHub, echoed in the
     // token exchange) pins the callback to the website origin.
     let location = format!(
-        "{oauth_base}/login/oauth/authorize?client_id={client_id}&state={state}\
+        "{oauth_base}/login/oauth/authorize?client_id={client_id}&scope={scope}&state={state}\
          &redirect_uri={redirect_uri}",
         oauth_base = github_oauth_base(env),
         client_id = url_encode(&client_id),
+        scope = url_encode(notification_email::SCOPE),
         redirect_uri = url_encode(&callback_url(env)?),
     );
     redirect_response(302, &location, &[cookie])
@@ -256,7 +259,7 @@ fn login(env: &Env) -> worker::Result<Response> {
 /// scope being claimed (so the callback grants exactly what this route
 /// validated), and the authorize request asks for
 /// `read:org` - the org-claim check reads the user's own membership -
-/// while ordinary sign-in keeps its scopeless request.
+/// while ordinary sign-in asks only for `user:email`.
 ///
 /// A cross-site navigation refuses before anything is sealed
 /// ([`session::navigation_is_user_initiated`]): the callback's state
@@ -382,7 +385,8 @@ async fn callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<R
 /// the `code` for an access token, read the numeric GitHub id, admit
 /// only allowlisted ids, and - when the id has no Cabin account yet -
 /// hold account creation to the sign-up age gate ([`crate::signup`]).
-/// The access token is used for that one `/user` call and dropped.
+/// The access token is used for that `/user` call and the notification
+/// address read ([`notification_email_lookup`]) and dropped.
 /// Every refusal is the same redirect to the website's `/login/denied/`
 /// page with no account details, and logs the check that refused and
 /// nothing of the account; the exception is the age refusal, which
@@ -402,10 +406,10 @@ async fn sign_in(
         denied(std::slice::from_ref(&clear_state))
     };
 
-    let Some(access_token) = github_access_token(env, code, &callback_url(env)?).await? else {
+    let Some(grant) = github_access_token(env, code, &callback_url(env)?).await? else {
         return refused("the GitHub code exchange failed");
     };
-    let Some(user) = github_user(env, &access_token).await? else {
+    let Some(user) = github_user(env, &grant.access_token).await? else {
         return refused("the GitHub user read failed");
     };
     // The numeric id is the identity; the login name is display-only.
@@ -415,8 +419,12 @@ async fn sign_in(
     // A first sign-in is also account creation, which the sign-up gate
     // holds to a minimum GitHub account age; a returning user has an
     // identity row already and proceeds unexamined ([`crate::signup`]).
-    let existing_user = user_record(db, user.id).await?.is_some();
-    match signup::gate(existing_user, user.created_at.as_deref(), now_secs()) {
+    let existing_user = user_record(db, user.id).await?;
+    match signup::gate(
+        existing_user.is_some(),
+        user.created_at.as_deref(),
+        now_secs(),
+    ) {
         signup::Gate::Proceed => {}
         signup::Gate::IneligibleUntil(date) => {
             return redirect_response(
@@ -428,6 +436,17 @@ async fn sign_in(
         signup::Gate::Deny => return refused("the account's creation time is unusable"),
     }
 
+    // The notification address is read with the sign-in's own token
+    // and never decides the sign-in. Only the reason one is missing is
+    // logged, never an address.
+    let lookup = notification_email_lookup(env, &grant).await;
+    if let Some(reason) = lookup.unavailable() {
+        console_log!("sign-in: no notification address read: {reason}");
+    }
+    let stored_email = existing_user
+        .as_ref()
+        .and_then(|existing| existing.notification_email.as_deref());
+
     // The identity upsert and the new session row: one transaction,
     // user-creation first - the identity insert reads its
     // `last_insert_rowid()`. The account id is bound as text on purpose
@@ -438,7 +457,7 @@ async fn sign_in(
     let expires_at = now + session::SESSION_MAX_AGE_SECS;
     let session_id = auth::hex(&random_bytes::<16>()?);
     let secs = |at: u64| js_int(i64::try_from(at).expect("Unix seconds fit i64"));
-    db.batch(vec![
+    let mut statements = vec![
         db.prepare(sql::INSERT_USER_FOR_NEW_IDENTITY).bind(&[
             now_iso8601().into(),
             GITHUB_PROVIDER.into(),
@@ -449,6 +468,15 @@ async fn sign_in(
             account_id.as_str().into(),
             user.login.into(),
         ])?,
+    ];
+    if let Some(address) = notification_email::change(stored_email, &lookup) {
+        statements.push(db.prepare(sql::SET_NOTIFICATION_EMAIL).bind(&[
+            GITHUB_PROVIDER.into(),
+            account_id.as_str().into(),
+            address.map_or(JsValue::NULL, JsValue::from),
+        ])?);
+    }
+    statements.extend([
         db.prepare(sql::PRUNE_EXPIRED_BROWSER_SESSIONS)
             .bind(&[secs(now)])?,
         db.prepare(sql::INSERT_BROWSER_SESSION).bind(&[
@@ -456,8 +484,8 @@ async fn sign_in(
             account_id.as_str().into(),
             secs(expires_at),
         ])?,
-    ])
-    .await?;
+    ]);
+    db.batch(statements).await?;
 
     let sealed = session::seal_session(secret, user.id, &session_id, expires_at);
     let cookie = session::set_cookie(
@@ -489,7 +517,9 @@ async fn claim_scope(
     scope: &str,
     clear_state: String,
 ) -> worker::Result<Response> {
-    let Some(access_token) = github_access_token(env, code, &callback_url(env)?).await? else {
+    let Some(Grant { access_token, .. }) =
+        github_access_token(env, code, &callback_url(env)?).await?
+    else {
         return claim_denied(&[clear_state]);
     };
     let Some(user) = github_user(env, &access_token).await? else {
@@ -642,6 +672,7 @@ pub(crate) struct UserRecord {
     pub(crate) user_id: i64,
     login_snapshot: String,
     quota_class: String,
+    notification_email: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1202,6 +1233,15 @@ async fn remove_scope_member(
 #[derive(Deserialize)]
 struct AccessTokenResponse {
     access_token: Option<String>,
+    scope: Option<String>,
+}
+
+/// A code exchange's access token with the scopes GitHub granted it,
+/// comma-separated: what the user approved, which can be less than the
+/// authorize request asked for.
+struct Grant {
+    access_token: String,
+    scope: String,
 }
 
 /// The `/user` fields the callback reads. The numeric `id` - stable
@@ -1225,7 +1265,7 @@ async fn github_access_token(
     env: &Env,
     code: &str,
     redirect_uri: &str,
-) -> worker::Result<Option<String>> {
+) -> worker::Result<Option<Grant>> {
     let client_id = env.secret("GITHUB_CLIENT_ID")?.to_string();
     let client_secret = env.secret("GITHUB_CLIENT_SECRET")?.to_string();
     // GitHub requires the exchange's redirect_uri to match the one the
@@ -1250,8 +1290,14 @@ async fn github_access_token(
     if response.status_code() != 200 {
         return Ok(None);
     }
-    let AccessTokenResponse { access_token } = response.json().await?;
-    Ok(access_token)
+    let AccessTokenResponse {
+        access_token,
+        scope,
+    } = response.json().await?;
+    Ok(access_token.map(|access_token| Grant {
+        access_token,
+        scope: scope.unwrap_or_default(),
+    }))
 }
 
 /// One authenticated read against the GitHub API: the body on a 200,
@@ -1310,6 +1356,29 @@ pub(crate) async fn github_check_token(
         return Ok(None);
     }
     Ok(Some(response.bytes().await?))
+}
+
+/// Reads the account's notification address with the sign-in's token
+/// ([`notification_email`]). Never an `Err`: a read GitHub does not
+/// answer is [`notification_email::Lookup::Failed`], so the address
+/// cannot fail a sign-in. Each page is asked for by number rather than
+/// by following a `Link` header, so the token only ever goes to the
+/// API base.
+async fn notification_email_lookup(env: &Env, grant: &Grant) -> notification_email::Lookup {
+    use notification_email::{Lookup, MAX_PAGES, PAGE_SIZE, Page};
+    if !notification_email::scope_granted(&grant.scope) {
+        return Lookup::NoScope;
+    }
+    for page in 1..=MAX_PAGES {
+        let path = format!("/user/emails?per_page={PAGE_SIZE}&page={page}");
+        let Ok(Some(body)) = github_get(env, &grant.access_token, &path).await else {
+            return Lookup::Failed;
+        };
+        if let Page::Settled(lookup) = notification_email::read_page(&body) {
+            return lookup;
+        }
+    }
+    Lookup::Failed
 }
 
 /// The authenticated user's numeric id and login; `None` covers both a
