@@ -1276,12 +1276,25 @@ verdict or service mode, and the passes after it still run.
 ## Notifications
 
 The registry mails an account when something happens to it
-(`src/notifications.rs`, `src/sql/notifications.rs`). One event does
-so: the account's creation, at the sign-in that creates it. The D1
-batch that makes an event true also writes the mail it owes to the
-table `notifications`, so a recorded event always owes its mail and a
-failed request owes none. A row names the recipient's account and holds
-no address.
+(`src/notifications.rs`, `src/sql/notifications.rs`). Two events do
+so: an account's creation, at the sign-in that creates it, and a
+revision's publication. The D1 batch that makes an event true also
+writes the mail it owes to the table `notifications`, so a recorded
+event always owes its mail and a failed request owes none. A row names
+the recipient's account and holds no address.
+
+A publication's mail goes to the account that published the revision
+(`revisions.published_by`): the one whose token made the upload, which
+for a trusted publisher's upload is the scope owner the exchange minted
+the token for. The batch that records the revision's archive writes the
+row ("Upload lifecycle", archive placement), once per revision. A
+pending or rejected upload, and a verified one whose archive is not
+placed, owe nothing, and neither does a yank. The mail is not sent
+before the publish pass has completed the change that batch recorded
+(its `publication_jobs` row; "Upload lifecycle", the publish pass): the
+package's document and the catalog are in INDEX and purged, 15 to 30
+minutes after the archive is placed. A change the pass cannot complete
+holds its mail untried, and is the `publication` alert ("Alerts").
 
 Every cron pass sends up to 10 of the mails owed, the oldest first and
 one at a time, each to the address its recipient's account holds as the
@@ -1290,7 +1303,8 @@ mail goes out (`users.notification_email`; "Logs"), from `Cabin
 binding ("Alerts"). A mail whose account has no address is not tried
 and spends no attempt: it waits, and takes its turn among the mails
 owed once the account's owner signs in with a verified primary address
-on GitHub. Nothing a request sends chooses a recipient.
+on GitHub. Nothing a request sends chooses a recipient. The mails of
+many revisions published at once go out at that rate, 960 a day.
 
 A mail is recorded as sent, with the mail service's message id, only
 after the service accepted it. A send that fails records a code in
@@ -1315,8 +1329,9 @@ the command below sends its mail again. A send the service answers
 with an error after it took the mail is tried again the same way.
 
 `cargo registry-diagnose` counts the rows by kind and state: `sent`,
-`queued` (not tried yet), `no address`, `retrying: <code>` and `given
-up: <code>`. The code reads `outcome not recorded` for a row whose
+`queued` (not tried yet), `no address`, `awaiting publication` (the
+publish pass has not completed the revision's change), `retrying:
+<code>` and `given up: <code>`. The code reads `outcome not recorded` for a row whose
 latest pass recorded nothing: that pass is still running, or the case
 above. The cron deletes no row. Once what stopped a given-up mail is
 gone - a suppression lifted, the sending domain repaired - this has the

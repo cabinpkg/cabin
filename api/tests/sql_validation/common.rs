@@ -440,3 +440,23 @@ pub fn seed_scope_collision(conn: &Connection) {
     .expect("seed the cross-scope collision");
     archive_verified(conn);
 }
+
+/// Turns [`seed_scope_collision`]'s pending `beta/pkg@1.0.0#bb` (20
+/// bytes, upload `seed-bb`) verified, as the verdict does.
+pub fn verify_beta(conn: &Connection) {
+    let changed = conn
+        .execute(
+            sql::MARK_REVISION_VERIFIED,
+            rusqlite::params![
+                "2026-07-16T00:00:00.000Z",
+                "beta",
+                "pkg",
+                "1.0.0",
+                "bb",
+                "2026-07-15T00:00:00.000Z",
+                "bb"
+            ],
+        )
+        .expect("MARK_REVISION_VERIFIED");
+    assert_eq!(changed, 1);
+}

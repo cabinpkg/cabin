@@ -7,7 +7,7 @@ use cabin_api_worker::{publication, sql, verify};
 use rusqlite::Connection;
 use rusqlite::types::Value;
 
-use crate::common::{batch, migrated_connection, rows, seed_scope_collision, sweep};
+use crate::common::{batch, migrated_connection, rows, seed_scope_collision, sweep, verify_beta};
 
 const NOW: &str = "2026-07-16T00:00:00.000Z";
 /// The seed rows' `published_at`.
@@ -15,18 +15,6 @@ const PUBLISHED: &str = "2026-07-15T00:00:00.000Z";
 
 fn text(value: &str) -> Value {
     Value::Text(value.to_owned())
-}
-
-/// Turns the seed's pending `beta/pkg@1.0.0#bb` (20 bytes, upload
-/// `seed-bb`) verified, as the verdict does.
-fn verify_beta(conn: &Connection) {
-    let changed = conn
-        .execute(
-            sql::MARK_REVISION_VERIFIED,
-            rusqlite::params![NOW, "beta", "pkg", "1.0.0", "bb", PUBLISHED, "bb"],
-        )
-        .expect("MARK_REVISION_VERIFIED");
-    assert_eq!(changed, 1);
 }
 
 fn unarchived(conn: &Connection) -> Vec<String> {

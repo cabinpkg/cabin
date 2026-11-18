@@ -252,6 +252,10 @@ pub const LOGIN_DENIED_REDIRECT: &str = "/login/denied/";
 pub const LOGIN_DENIED_ACCOUNT_AGE_PREFIX: &str = "/login/denied/?reason=account-age&eligible=";
 pub const CLAIM_GRANTED_REDIRECT: &str = "/dashboard/?claim=granted";
 pub const CLAIM_DENIED_REDIRECT: &str = "/dashboard/?claim=denied";
+/// The website's page for one package the signed-in account can see,
+/// completed by the package's `<scope>%2F<name>`
+/// (`website/src/lib/constants.ts`, `ACCOUNT_URLS.package`).
+pub const PACKAGE_PAGE_PREFIX: &str = "/dashboard/package?name=";
 
 /// A matched session-plane route: the JSON user API under
 /// `/api/v1/user`, session-cookie authenticated on the website origin.

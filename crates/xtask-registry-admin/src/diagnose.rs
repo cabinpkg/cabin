@@ -65,6 +65,9 @@ const NOTIFICATIONS: &str = "
            WHEN n.failed_at IS NOT NULL
              THEN 'given up: ' || COALESCE(n.failure, 'outcome not recorded')
            WHEN u.notification_email IS NULL THEN 'no address'
+           WHEN EXISTS (SELECT 1 FROM publication_jobs j
+                        WHERE j.generation = n.detail ->> '$.generation'
+                        AND j.completed_at IS NULL) THEN 'awaiting publication'
            WHEN n.attempts = 0 THEN 'queued'
            ELSE 'retrying: ' || COALESCE(n.failure, 'outcome not recorded') END AS state
     FROM notifications n JOIN users u ON u.id = n.recipient)
