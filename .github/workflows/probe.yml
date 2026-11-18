@@ -1,0 +1,32 @@
+name: Probe
+
+# Temporary, removed before merge: runs the Setup Node.js step that
+# issue-triage.lock.yml gains on ubuntu-26.04, which no pull request
+# event reaches.
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  # The step exactly as generated; red if the action fails or the node
+  # on PATH is not the one it installed.
+  setup-node:
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: command -v node
+      - run: node --version
+      - run: test "$(node --version | cut -d. -f1)" = v24
+      - run: test "$(command -v node | cut -d/ -f1-3)" = "$RUNNER_TOOL_CACHE"
+
+  # Contrast: where the image's own node lives without the step.
+  baseline:
+    runs-on: ubuntu-26.04
+    steps:
+      - run: command -v node
+      - run: node --version

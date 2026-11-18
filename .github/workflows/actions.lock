@@ -44,6 +44,8 @@ workflows:
         - 'actions/checkout@v7.0.1'
         - 'actions/upload-artifact@v7.0.2'
         - 'ilammy/msvc-dev-cmd@v1.13.0'
+    '.github/workflows/probe.yml':
+        - 'actions/setup-node@820762786026740c76f36085b0efc47a31fe5020'
     '.github/workflows/proofs.yml':
         - 'actions/checkout@v7.0.1'
         - 'leanprover/lean-action@v1.7.1'
