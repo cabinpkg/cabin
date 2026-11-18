@@ -69,7 +69,10 @@ Sign-in and `cabin login` ask GitHub for the `user:email` scope only, and the re
 account's verified primary address in `users.notification_email` as the
 address for notices about it (`src/notification_email.rs`;
 [`../docs/remote-registry.md`](../docs/remote-registry.md),
-"Notification address").
+"Notification address"). The sign-in that creates an account records
+the mail it owes in `notifications`, and the cron sends what is owed
+(`src/notifications.rs`; [`docs/runbook.md`](docs/runbook.md),
+"Notifications").
 Package names are scoped (`<scope>/<name>`), and publish/yank
 authorization is per scope: the token's user must be a member of the
 target scope. A scope is claimed from the website

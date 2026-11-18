@@ -204,8 +204,24 @@ pub fn seed_tokens(
         &sha256_hex(noverify_token.as_bytes()),
         &sha256_hex(outsider_token.as_bytes()),
     );
-    d1(&sql)
+    d1(&(sql + RESET_CREATED_ACCOUNT))
 }
+
+/// What a prior run left of the account its sign-in leg created (github
+/// id 4) and of the notification leg (`legs/notifications.rs`): the
+/// account goes, so every run creates it and records the mail that
+/// owes; with it go every notification row and the refusing trigger of
+/// a run that stopped inside the leg. Before the run's first request
+/// and not in the leg, so the leg still finds a row that one of this
+/// run's requests should not have recorded.
+const RESET_CREATED_ACCOUNT: &str = "
+    DROP TRIGGER IF EXISTS smoke_refuse_sent;
+    DELETE FROM notifications;
+    DELETE FROM tokens WHERE user_id IN
+      (SELECT user_id FROM identities
+       WHERE provider = 'github' AND provider_account_id = '4');
+    DELETE FROM identities WHERE provider = 'github' AND provider_account_id = '4';
+    DELETE FROM users WHERE id NOT IN (SELECT user_id FROM identities);";
 
 /// The seeded identities mirror first sign-ins after the migration's
 /// own seed (registry user 1 is the pre-promoted operator, which the

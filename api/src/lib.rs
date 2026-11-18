@@ -19,6 +19,7 @@ pub mod error;
 pub mod governor;
 pub mod names;
 pub mod notification_email;
+pub mod notifications;
 pub mod publication;
 pub mod publish;
 pub mod quota;

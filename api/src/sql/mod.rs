@@ -50,6 +50,7 @@ groups!(
     auth,
     downloads,
     meta,
+    notifications,
     packages,
     publication,
     quota,

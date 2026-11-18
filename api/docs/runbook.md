@@ -1273,6 +1273,68 @@ path is down and the row's latest change or reminder has not gone
 out), and the latest pass's summary. A failed mail undoes no publish,
 verdict or service mode, and the passes after it still run.
 
+## Notifications
+
+The registry mails an account when something happens to it
+(`src/notifications.rs`, `src/sql/notifications.rs`). One event does
+so: the account's creation, at the sign-in that creates it. The D1
+batch that makes an event true also writes the mail it owes to the
+table `notifications`, so a recorded event always owes its mail and a
+failed request owes none. A row names the recipient's account and holds
+no address.
+
+Every cron pass sends up to 10 of the mails owed, the oldest first and
+one at a time, each to the address its recipient's account holds as the
+mail goes out (`users.notification_email`; "Logs"), from `Cabin
+<noreply@cabinpkg.com>` with no `Reply-To`, through the `NOTIFY_EMAIL`
+binding ("Alerts"). A mail whose account has no address is not tried
+and spends no attempt: it waits, and takes its turn among the mails
+owed once the account's owner signs in with a verified primary address
+on GitHub. Nothing a request sends chooses a recipient.
+
+A mail is recorded as sent, with the mail service's message id, only
+after the service accepted it. A send that fails records a code in
+`failure`, never the error's message - the service's error code,
+`unknown` for an error that carries none, or `unreadable` for a row the
+deployed build cannot write a mail for - and the log reads
+`notification <id> (<kind>) not sent: <code>`. The row is tried again
+30 minutes later, then after twice the wait each time: 8 tries over
+about 64 hours, and the last one gives the row up (`failed_at`) unless
+its mail is recorded as sent. `E_RECIPIENT_SUPPRESSED`, the service
+refusing a recipient on its suppression list, gives it up at once. A
+failed mail undoes nothing: what it reports stands, and the pass goes
+on to the next row.
+
+The mail service has no idempotency key, so a mail can go out more
+than once. A pass that dies after the service accepted the mail and
+before D1 recorded it, or whose record fails (`notification <id>: its
+outcome was not recorded: ...` in the log), leaves the row its attempt
+and no outcome, and the row's next try sends the mail again. After the
+last try there is no next one: the row is given up with no code, and
+the command below sends its mail again. A send the service answers
+with an error after it took the mail is tried again the same way.
+
+`cargo registry-diagnose` counts the rows by kind and state: `sent`,
+`queued` (not tried yet), `no address`, `retrying: <code>` and `given
+up: <code>`. The code reads `outcome not recorded` for a row whose
+latest pass recorded nothing: that pass is still running, or the case
+above. The cron deletes no row. Once what stopped a given-up mail is
+gone - a suppression lifted, the sending domain repaired - this has the
+cron try each one again. It leaves a row claimed in the last 30 minutes
+alone: the pass that claimed it may still be sending its mail.
+
+```sh
+node_modules/.bin/wrangler d1 execute DB --remote --command "
+  UPDATE notifications
+  SET attempts = 0, attempted_at = NULL, failure = NULL, failed_at = NULL
+  WHERE sent_at IS NULL AND failed_at IS NOT NULL
+    AND attempted_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 minutes');"
+```
+
+`sent` says the mail service accepted the mail. Whether the recipient's
+server took it is in the Cloudflare dashboard's Email Sending activity
+log, under the row's `message_id`.
+
 ## Disaster recovery
 
 The registry keeps no backup of its own, of the archives or of D1.
