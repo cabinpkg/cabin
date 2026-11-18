@@ -152,7 +152,7 @@ pub fn run(smoke: &mut Smoke, inputs: &mut FinaleInputs<'_>) -> Result<()> {
     tiny_pools(smoke, inputs, &fixtures)?;
     admin_governor(smoke)?;
     concurrency(smoke, inputs, &fixtures)?;
-    crate::legs::notifications::nothing_else_is_owed()?;
+    crate::legs::notifications::nothing_else_is_owed(inputs.scope)?;
     // Dead last on purpose: the exhaustion burst empties the shared
     // local admission bucket (crate::legs::admission), and any OIDC
     // request after it would answer the 429 for up to a minute.

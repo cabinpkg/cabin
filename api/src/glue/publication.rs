@@ -197,6 +197,12 @@ async fn place_archive(
             revision.into(),
         ])?];
         batch.extend(document_changed(db, scope, name, &now)?);
+        batch.push(db.prepare(sql::NOTIFY_REVISION_PUBLISHED).bind(&[
+            scope.into(),
+            name.into(),
+            version.into(),
+            revision.into(),
+        ])?);
         batch
     } else {
         console_error!(

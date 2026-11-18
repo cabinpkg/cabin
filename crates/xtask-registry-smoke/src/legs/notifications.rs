@@ -1,6 +1,9 @@
 //! The account notifications end to end
 //! (`api/src/notifications.rs`): the sign-in that created an account
-//! recorded the mail it owes, and the cron sends it. A row reads as
+//! recorded the mail it owes, and the cron sends it; a served revision
+//! owes its publisher one, which the cron sends once the publish pass
+//! has completed the change (`legs/blobs.rs` calls
+//! [`expect_publications`] around that pass). A row reads as
 //! sent once the local `NOTIFY_EMAIL` binding has accepted its mail and
 //! the pass has recorded the message. What the local binding shows of
 //! a mail is the dev tool's own log, which is no contract to assert on,
@@ -27,6 +30,9 @@ const PER_PASS: u32 = 10;
 
 /// The kind of the mails the legs before this one can owe.
 const ACCOUNT: &str = "account_created";
+
+/// The kind of the mail a served revision owes its publisher.
+const PUBLISHED: &str = "revision_published";
 
 /// A kind the Worker has no mail for.
 const UNREADABLE: &str = "smoke";
@@ -161,24 +167,66 @@ fn render(row: &Map<String, Value>) -> String {
     serde_json::to_string(row).unwrap_or_default()
 }
 
-/// Everything the run did after the sign-in leg - session mints,
-/// publishes, verdicts, yanks, claims, membership changes, token
-/// exchanges - recorded no mail: the created account's is still the
-/// only row.
+/// The publications of `scope` so far owe one mail per revision the
+/// read plane serves, and the mails together satisfy `holds`, an
+/// aggregate over their rows. The seed removed the scope's revisions
+/// and every mail of earlier runs (`servers.rs`), so both are this
+/// run's.
 ///
 /// # Errors
 ///
-/// If any other row exists.
-pub fn nothing_else_is_owed() -> Result<()> {
-    step("no other request of the run recorded a mail");
+/// If a served revision owes no mail or more than one, or `holds` is
+/// false.
+pub fn expect_publications(scope: &str, holds: &str, what: &str) -> Result<()> {
     let rows = d1_rows(&format!(
-        "SELECT COUNT(*) AS total, SUM(recipient = {CREATED} AND kind = '{ACCOUNT}') \
-         AS created FROM notifications"
+        "SELECT COUNT(*) AS owed, COALESCE({holds}, 0) AS holds, \
+                COALESCE(SUM(attempts), 0) AS attempts, COUNT(sent_at) AS sent, \
+                (SELECT COUNT(*) FROM revisions \
+                 WHERE scope = '{scope}' AND archived_at IS NOT NULL) AS served \
+         FROM notifications WHERE kind = '{PUBLISHED}' AND event LIKE '{scope}/%'"
     ))?;
     let row = rows.first().context("the count answered no row")?;
-    if row["total"] != 1 || row["created"] != 1 {
+    if row["served"] == 0 || row["owed"] != row["served"] || row["holds"] != 1 {
         bail!(
-            "the run's notifications are not the one row: {}",
+            "the publications do not owe one mail per served revision, {what}: {}",
+            render(row)
+        );
+    }
+    Ok(())
+}
+
+/// Everything the run did after the sign-in leg - session mints,
+/// publishes, verdicts, yanks, claims, membership changes, token
+/// exchanges - recorded no mail but one for each revision the read
+/// plane serves under `scope`, owed to the account that published it:
+/// beside those, the created account's is still the only row.
+///
+/// # Errors
+///
+/// If any other row exists, or a served revision has none.
+pub fn nothing_else_is_owed(scope: &str) -> Result<()> {
+    step("no request of the run recorded a mail but each served revision's");
+    let rows = d1_rows(&format!(
+        "SELECT COUNT(*) AS total, SUM(recipient = {CREATED} AND kind = '{ACCOUNT}') AS created, \
+                SUM(kind = '{PUBLISHED}' AND EXISTS ( \
+                  SELECT 1 FROM revisions r \
+                  WHERE r.scope || '/' || r.name || '@' || r.version || '#' || r.revision \
+                        = notifications.event \
+                  AND r.published_by = notifications.recipient \
+                  AND r.archived_at IS NOT NULL)) AS published, \
+                (SELECT COUNT(*) FROM revisions \
+                 WHERE scope = '{scope}' AND archived_at IS NOT NULL) AS served \
+         FROM notifications"
+    ))?;
+    let row = rows.first().context("the count answered no row")?;
+    if row["created"] != 1
+        || row["served"] == 0
+        || row["published"] != row["served"]
+        || row["total"].as_u64() != row["published"].as_u64().map(|published| published + 1)
+    {
+        bail!(
+            "the run's notifications are not the created account's and one for each served \
+             revision: {}",
             render(row)
         );
     }

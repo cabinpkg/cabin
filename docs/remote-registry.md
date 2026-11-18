@@ -1077,9 +1077,12 @@ changing it means changing it on GitHub and signing in again.  A sign-in that ca
 GitHub does not answer, or the grant does not carry the scope - leaves the stored address as it
 is; one that learns the account has no verified primary address any more removes it.
 
-The registry sends one notice today: a message to the address when the account is created.
-The message comes from `noreply@cabinpkg.com`.  An account with no address on file gets it
-after a later sign-in stores one.
+The registry sends two notices: a message to the address when the account is created, and one
+to the account that published a revision, normally 15 to 30 minutes after the revision is first
+[served](#verification-lifecycle).  A revision published through
+[trusted publishing](#trusted-publishing) is published as an owner of the package's scope, and
+the message goes to that owner.  The messages come from `noreply@cabinpkg.com`.  An account
+with no address on file gets them after a later sign-in stores one.
 
 The address is not an identity.  Accounts stay keyed by the numeric GitHub id, two accounts
 may hold the same address, and nothing is granted, merged, or transferred because addresses

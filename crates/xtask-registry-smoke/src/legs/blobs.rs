@@ -29,6 +29,7 @@ use serde_json::Value;
 use crate::bytes::{frame, retarget_hash, revision_of, sha256_hex, tamper_zip};
 use crate::context::Smoke;
 use crate::legs::finale::BREAKER_CRON;
+use crate::legs::notifications::expect_publications;
 use crate::legs::revisions::{UNYANKED, YANKED};
 use crate::legs::session;
 use crate::servers::{d1, d1_quiet, d1_rows, delete_upload, stored_document, stored_upload};
@@ -430,10 +431,23 @@ fn cron_records_placed_archives(smoke: &mut Smoke) -> Result<()> {
 /// what they put from the edge (the mock stands in for Cloudflare's
 /// API).  The cron completes a change only once it has settled, which
 /// the last steps stand in for by ageing the open jobs, and never in a
-/// pass whose purge failed.
+/// pass whose purge failed.  A served revision's mail to its publisher
+/// waits for that completion: no pass tries the mail while its change
+/// is open, and the pass that completes the changes sends it.
 fn index_holds_served_documents(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> Result<()> {
     step("INDEX holds the documents the read plane serves");
     let open_jobs = || d1_rows("SELECT 1 FROM publication_jobs WHERE completed_at IS NULL");
+    let mails_wait = |why: &str| {
+        expect_publications(
+            inputs.scope,
+            "SUM(attempts > 0 AND EXISTS ( \
+               SELECT 1 FROM publication_jobs j \
+               WHERE j.generation = notifications.detail ->> '$.generation' \
+               AND j.completed_at IS NULL)) = 0",
+            why,
+        )
+    };
+    mails_wait("none tried while its change is open")?;
     let document = inputs.package_path.trim_start_matches('/');
     let yank_path = format!(
         "/api/v1/packages/{}/{}/{}/yank",
@@ -489,12 +503,19 @@ fn index_holds_served_documents(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> R
     if open_jobs()?.len() != open {
         bail!("the cron completed a publication job in a pass whose purge failed");
     }
+    mails_wait("none tried by a pass whose purge failed")?;
     smoke.purges("ok")?;
     smoke.check(BREAKER_CRON, &[200])?;
     if !open_jobs()?.is_empty() {
         bail!("the cron left a settled publication job open");
     }
-    Ok(())
+    // A pass sends ten mails at most (`notifications::PER_PASS`).
+    expect_publications(
+        inputs.scope,
+        "SUM(attempts = 1 AND sent_at LIKE '20%Z' AND message_id <> '') = MIN(COUNT(*), 10) \
+         AND SUM(attempts = 0) = COUNT(*) - MIN(COUNT(*), 10)",
+        "sent by the pass that completed their changes",
+    )
 }
 
 /// `ghost` was never claimed; `foreign` belongs only to the seeded

@@ -12,28 +12,57 @@ statements! {
          SELECT 'account_created', '', user_id, ?3, ?4 FROM identities \
          WHERE provider = ?1 AND provider_account_id = ?2";
 
+    /// Owes the publisher of revision `(?1, ?2, ?3, ?4)` the mail of
+    /// its publication. It runs last in the batch that records the
+    /// revision's archive
+    /// ([`MARK_REVISION_ARCHIVED`](super::publication::MARK_REVISION_ARCHIVED)
+    /// and the three statements that count the change), and does
+    /// nothing unless they recorded the change's job. The detail names
+    /// the generation the change took, which is that job's and what
+    /// [`CLAIM_NOTIFICATION`] holds the row by. An archive is recorded
+    /// once per revision, and a second record of one adds no row.
+    NOTIFY_REVISION_PUBLISHED =
+        "INSERT OR IGNORE INTO notifications (kind, event, recipient, detail, created_at) \
+         SELECT 'revision_published', \
+                r.scope || '/' || r.name || '@' || r.version || '#' || r.revision, \
+                r.published_by, \
+                json_object('scope', r.scope, 'name', r.name, 'version', r.version, \
+                            'revision', r.revision, 'at', r.archived_at, \
+                            'generation', p.generation), \
+                r.archived_at \
+         FROM revisions r JOIN packages p ON p.scope = r.scope AND p.name = r.name \
+         WHERE r.scope = ?1 AND r.name = ?2 AND r.version = ?3 AND r.revision = ?4 \
+         AND (SELECT changes()) = 1";
+
     /// Claims the one mail a pass sends next at `?1`, the oldest row
     /// that is owed one, counting the attempt before the send, and
     /// answers the row with the address its recipient has now. A row
     /// is owed a mail while it is neither sent nor given up and its
     /// recipient has a notification address; one without an address
-    /// waits unclaimed until its owner signs in with one. After its
-    /// `n`th claim a row waits `?3` minutes doubled `n` times for the
-    /// next, which is also what keeps a second pass from sending a row
-    /// the first still holds. The claim clears `failure`, so until the
+    /// waits unclaimed until its owner signs in with one. Nor is a row
+    /// owed its mail while the publication job of the generation its
+    /// detail names is open: the publish pass has not completed that
+    /// change yet (`glue::publication`). After its `n`th claim a row
+    /// waits `?3` minutes doubled `n` times for the next, which is
+    /// also what keeps a second pass from sending a row the first
+    /// still holds. The claim clears `failure`, so until the
     /// pass records an outcome the row reads as claimed with none; and
     /// a row's `?2`th claim gives the row up, which only the record of
     /// that claim's send undoes, so a row no pass ever settles ends
-    /// given up like any other.
-    // shortcut: the scan passes every sent row, and none is pruned yet;
-    // index the unsettled rows or prune once the table is large.
+    /// given up like any other. `INDEXED BY` keeps the scan to the
+    /// rows neither sent nor given up: the settled rows are never
+    /// deleted, and there is one for every revision ever published.
     CLAIM_NOTIFICATION =
         "UPDATE notifications SET attempts = attempts + 1, attempted_at = ?1, failure = NULL, \
            failed_at = CASE WHEN attempts + 1 >= ?2 THEN ?1 END \
          WHERE id = ( \
-           SELECT n.id FROM notifications n JOIN users u ON u.id = n.recipient \
+           SELECT n.id FROM notifications n INDEXED BY notifications_unsettled \
+           JOIN users u ON u.id = n.recipient \
            WHERE n.sent_at IS NULL AND n.failed_at IS NULL \
              AND u.notification_email IS NOT NULL \
+             AND NOT EXISTS (SELECT 1 FROM publication_jobs j \
+                             WHERE j.generation = n.detail ->> '$.generation' \
+                             AND j.completed_at IS NULL) \
              AND (n.attempted_at IS NULL \
                   OR n.attempted_at <= strftime('%Y-%m-%dT%H:%M:%fZ', ?1, \
                                                 '-' || (?3 << n.attempts) || ' minutes')) \

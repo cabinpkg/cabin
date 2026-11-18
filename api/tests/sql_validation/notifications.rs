@@ -5,8 +5,11 @@
 use cabin_api_worker::notifications::{ATTEMPTS, BACKOFF_MINUTES, account_created, mail};
 use cabin_api_worker::sql;
 use rusqlite::Connection;
+use rusqlite::types::Value;
 
-use crate::common::{migrated_connection, resolve, rows, sign_in};
+use crate::common::{
+    batch, migrated_connection, resolve, rows, seed_scope_collision, sign_in, verify_beta,
+};
 
 /// The time `minutes` after the first pass, as the cron's clock writes it.
 fn at(minutes: u32) -> String {
@@ -101,6 +104,57 @@ fn row_of(conn: &Connection, user: i64) -> f64 {
 }
 
 const NONE: [&str; 0] = [];
+
+fn text(value: &str) -> Value {
+    Value::Text(value.to_owned())
+}
+
+/// The batch `glue::publication::place_archive` records the archive of
+/// the seed's `beta/pkg@1.0.0#bb` with, at `minutes`; each statement's
+/// changed rows.
+fn place_beta(conn: &Connection, minutes: u32) -> Vec<usize> {
+    let package = || vec![text("beta"), text("pkg")];
+    let revision = || [package(), vec![text("1.0.0"), text("bb")]].concat();
+    batch(
+        conn,
+        vec![
+            (
+                sql::MARK_REVISION_ARCHIVED,
+                [vec![text(&at(minutes))], revision()].concat(),
+            ),
+            (sql::ADVANCE_CATALOG_GENERATION, vec![]),
+            (sql::STAMP_PACKAGE_GENERATION, package()),
+            (
+                sql::RECORD_PUBLICATION_JOB,
+                [package(), vec![text(&at(minutes))]].concat(),
+            ),
+            (sql::NOTIFY_REVISION_PUBLISHED, revision()),
+        ],
+    )
+    .into_iter()
+    .map(|(changed, _)| changed)
+    .collect()
+}
+
+/// A yank of `scope/pkg@1.0.0`, as its request's batch records it.
+fn yank(conn: &Connection, scope: &str) {
+    let package = || vec![text(scope), text("pkg")];
+    batch(
+        conn,
+        vec![
+            (
+                sql::SET_VERSION_YANKED,
+                [vec![1.0.into()], package(), vec![text("1.0.0")]].concat(),
+            ),
+            (sql::ADVANCE_CATALOG_GENERATION, vec![]),
+            (sql::STAMP_PACKAGE_GENERATION, package()),
+            (
+                sql::RECORD_PUBLICATION_JOB,
+                [package(), vec![text(&at(0))]].concat(),
+            ),
+        ],
+    );
+}
 
 /// An account's creation owes that account one mail, however often it
 /// is recorded, and the row is one the mail can be written from.
@@ -332,4 +386,110 @@ fn a_claim_reads_the_address_stored_when_it_runs() {
     assert_eq!(claim(&conn, 30), NONE);
     set_address(&conn, mona, Some("back@example.com"));
     assert_eq!(claim(&conn, 30), [format!("{mona} back@example.com")]);
+}
+
+/// A revision owes the account that published it one mail when its
+/// archive is recorded, not before; a second record of the archive
+/// lands without owing another, and a batch that records none owes
+/// none.
+#[test]
+fn a_placed_revision_owes_its_publisher_one_mail() {
+    let conn = migrated_connection();
+    seed_scope_collision(&conn);
+    // The seed's user created the package and owns nothing of beta's
+    // revision once another account published it.
+    let mona = create_account(&conn, "424242", "mona");
+    conn.execute(
+        "UPDATE revisions SET published_by = ?1 WHERE scope = 'beta'",
+        [mona],
+    )
+    .expect("mona published beta's revision");
+    let published =
+        "SELECT event, recipient, created_at FROM notifications WHERE kind = 'revision_published'";
+
+    assert_eq!(place_beta(&conn, 15), [0; 5], "pending");
+    assert!(rows(&conn, published).is_empty());
+
+    verify_beta(&conn);
+    assert_eq!(place_beta(&conn, 15), [1; 5]);
+    let owed = [format!(
+        r#"Text("beta/pkg@1.0.0#bb") | Integer({mona}) | Text("{}")"#,
+        at(15)
+    )];
+    assert_eq!(rows(&conn, published), owed);
+    let detail: String = conn
+        .query_row(
+            "SELECT detail FROM notifications WHERE kind = 'revision_published'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("the row");
+    let mail = mail("revision_published", &detail, "https://cabinpkg.com").expect("a mail");
+    for line in [
+        "beta/pkg 1.0.0 was published",
+        "Revision: bb\n",
+        &format!("Published: {}\n", at(15)),
+    ] {
+        assert!(mail.text.contains(line), "{line:?} in {}", mail.text);
+    }
+
+    assert_eq!(place_beta(&conn, 30), [0; 5], "recorded already");
+    // No statement of the Worker's clears `archived_at`. Were an
+    // archive recorded twice all the same, the record must land.
+    conn.execute(
+        "UPDATE revisions SET archived_at = NULL WHERE scope = 'beta'",
+        [],
+    )
+    .expect("un-record the archive");
+    assert_eq!(place_beta(&conn, 45), [1, 1, 1, 1, 0]);
+    assert_eq!(rows(&conn, published), owed);
+
+    // A revision served before the registry sent these mails has no
+    // row, and a later batch that records nothing gives it none.
+    conn.execute("DELETE FROM notifications", [])
+        .expect("forget the mail");
+    assert_eq!(place_beta(&conn, 60), [0; 5]);
+    assert!(rows(&conn, published).is_empty());
+}
+
+/// A publication's mail is not claimed while the job of its change is
+/// open, and does not stop the rows after it. Once the publish pass
+/// completes that job the mail is owed, whatever later change is open.
+#[test]
+fn a_publication_mail_waits_for_its_change_to_be_published() {
+    let conn = migrated_connection();
+    seed_scope_collision(&conn);
+    set_address(&conn, 2, Some("owner@example.com"));
+    verify_beta(&conn);
+    assert_eq!(place_beta(&conn, 0), [1; 5]);
+    let mona = addressed_account(&conn, "424242", "mona");
+
+    assert_eq!(claim(&conn, 0), [format!("{mona} mona@example.com")]);
+    assert_eq!(claim(&conn, 15), NONE);
+    assert_eq!(
+        rows(
+            &conn,
+            "SELECT attempts FROM notifications WHERE kind = 'revision_published'"
+        ),
+        ["Integer(0)"]
+    );
+
+    // The placement took generation 1; the yanks take 2 and 3.
+    yank(&conn, "alpha");
+    yank(&conn, "beta");
+    let completed = conn
+        .execute(
+            sql::COMPLETE_PUBLICATION_JOBS,
+            (at(15), "beta", "pkg", 1.0, at(0)),
+        )
+        .expect("COMPLETE_PUBLICATION_JOBS");
+    assert_eq!(completed, 1);
+    assert_eq!(
+        rows(
+            &conn,
+            "SELECT generation FROM publication_jobs WHERE completed_at IS NULL ORDER BY 1"
+        ),
+        ["Integer(2)", "Integer(3)"]
+    );
+    assert_eq!(claim(&conn, 15), ["2 owner@example.com"]);
 }
