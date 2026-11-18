@@ -201,6 +201,7 @@ fn yank(conn: &Connection, yanked: f64) -> Vec<usize> {
         text("2026-07-16T00:00:00.000Z"),
         30.0.into(),
         2.0.into(),
+        90.0.into(),
     ];
     change(conn, sql::SET_VERSION_YANKED, values, "alpha")
 }

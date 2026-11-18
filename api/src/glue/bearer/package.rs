@@ -238,8 +238,9 @@ async fn is_scope_member(db: &D1Database, scope: &str, user_id: i64) -> worker::
 /// for the publish pass in the same batch. The request makes no R2
 /// call and draws nothing from the governor. Gated by the budget
 /// breaker (`503`) like publish. A yank has no rate limit or quota; an
-/// un-yank answers `429` once the scope's un-yanks of the UTC day
-/// reach `quota::SCOPE_GRANT_MAILS_PER_DAY`.
+/// un-yank answers `429` once the account's un-yanks in the scope on
+/// the UTC day reach `quota::SCOPE_GRANT_MAILS_PER_DAY`, or all
+/// accounts' reach `quota::SCOPE_UNYANK_MAILS_PER_DAY`.
 /// The scope-membership gate (the uniform `403`) answers before the
 /// version lookup, so a non-member can never probe which versions exist
 /// under a foreign scope. Yank applies to served versions only: a
@@ -293,6 +294,7 @@ pub(super) async fn yank_response(
             now.as_str().into(),
             quota::SCOPE_GRANT_MAILS_PER_DAY.into(),
             js_int(auth.user_id),
+            quota::SCOPE_UNYANK_MAILS_PER_DAY.into(),
         ])?];
         batch.extend(document_changed(db, scope, name, &now)?);
         batch.push(db.prepare(sql::NOTIFY_VERSION_YANK).bind(&[

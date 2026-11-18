@@ -889,8 +889,8 @@ with none was never part of the registry's resolvable surface, so there is nothi
 answers an authenticated `404`.
 
 A yank is never rate limited.  An un-yank is: once an account's un-yanks of one scope's packages
-reach 30 in a UTC day, its further ones answer `429` with code
-[`scope_rate_limited`](#error-envelope) until the day rolls over.
+reach 30 in a UTC day, or all accounts' un-yanks of them reach 90, further ones answer `429` with
+code [`scope_rate_limited`](#error-envelope) until the day rolls over.
 
 ### Yanking from the client
 
@@ -1139,7 +1139,7 @@ before.  The defined codes:
 | --- | --- | --- |
 | `rate_limited` | `429` | The publish token bucket is empty, or the per-client admission budget of the exchange, verdict, and login-session mint routes is spent; `Retry-After` says when it refills. |
 | `read_rate_limited` | `429` | The caller's daily allowance of registry-side archive reads is spent; `Retry-After` reaches the next UTC day.  Cached downloads are unaffected. |
-| `scope_rate_limited` | `429` | The account's daily limit of [un-yanks](#yank) in the scope, or the scope's daily limit of member additions, is reached; `Retry-After` reaches the next UTC day.  Yanks and removals are never limited. |
+| `scope_rate_limited` | `429` | A daily limit of [un-yanks](#yank) in the scope - the account's, or the scope's for all its accounts - or the scope's daily limit of member additions is reached; `Retry-After` reaches the next UTC day.  Yanks and removals are never limited. |
 | `daily_upload_limit_exceeded` | `429` | A daily upload allowance is spent: the caller's, or the registry's shared one.  The error also carries `limit_kind` (`user_bytes`, `user_count`, `shared_bytes`, or `shared_count`), `limit`, `used`, and `reset_at`, the next UTC midnight, which `Retry-After` counts down to. |
 | `pending_limit_exceeded` | `429` | Too many of the caller's uploads await verification.  The error also carries `limit` and `used`, and no `Retry-After`: the limit clears as those uploads are verified or rejected. |
 | `archive_too_large` | `413` | The archive exceeds the per-archive size limit. |

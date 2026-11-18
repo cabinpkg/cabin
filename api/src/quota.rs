@@ -223,8 +223,13 @@ pub const READ_RATE_LIMITED: Denial = Denial {
 /// sends `notifications::PER_PASS` mails from. The bound is on the
 /// repetition alone: it does not count what removals owe.
 pub const SCOPE_GRANT_MAILS_PER_DAY: u32 = 30;
-/// [`SCOPE_GRANT_MAILS_PER_DAY`] is reached; `Retry-After` carries the
-/// seconds until the UTC day rolls over.
+/// The mails all accounts' un-yanks in one scope may owe in a UTC day:
+/// three accounts' worth, so no single account can spend it, and
+/// adding members does not multiply what the scope can owe.
+pub const SCOPE_UNYANK_MAILS_PER_DAY: u32 = 3 * SCOPE_GRANT_MAILS_PER_DAY;
+/// [`SCOPE_GRANT_MAILS_PER_DAY`] or [`SCOPE_UNYANK_MAILS_PER_DAY`] is
+/// reached; `Retry-After` carries the seconds until the UTC day rolls
+/// over.
 pub const SCOPE_RATE_LIMITED: Denial = Denial {
     status: 429,
     code: "scope_rate_limited",

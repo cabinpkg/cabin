@@ -36,8 +36,9 @@ const FRIEND: &str =
 /// The mails one pass sends at most (`notifications::PER_PASS`).
 const PER_PASS: u32 = 10;
 
-/// The mails a scope's un-yanks, or its additions, may owe in a UTC
-/// day (`quota::SCOPE_GRANT_MAILS_PER_DAY`).
+/// The mails an account's un-yanks in a scope, or the scope's
+/// additions, may owe in a UTC day
+/// (`quota::SCOPE_GRANT_MAILS_PER_DAY`).
 const DAILY_LIMIT: u32 = 30;
 
 /// The kind of the mails the legs before this one can owe.
@@ -258,21 +259,44 @@ pub fn expect_publications(scope: &str, holds: &str, what: &str) -> Result<()> {
     Ok(())
 }
 
-/// Runs `refused` while `scope`'s mails of `kind` for the UTC day stand
-/// at the daily limit: fixture rows, removed after it.
+/// Runs `refused` while `scope` holds `mails` rows of `kind` for the
+/// UTC day, owed to `recipient`: fixture rows, removed after it.
+fn with_mails_owed(
+    kind: &str,
+    scope: &str,
+    mails: u32,
+    recipient: &str,
+    refused: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    d1(&format!(
+        "WITH RECURSIVE fixture(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM fixture WHERE i < {mails})
+         INSERT INTO notifications (kind, event, recipient, detail, created_at)
+           SELECT '{kind}', '{scope}@' || strftime('%Y-%m-%dT%H:%M:%fZ', 'now') || '/!' || i,
+                  {recipient}, '{{}}', '2026-01-01T00:00:00.000Z' FROM fixture"
+    ))?;
+    refused()?;
+    d1("DELETE FROM notifications WHERE event LIKE '%/!%'")
+}
+
+/// Runs `refused` while the seeded account's mails of `kind` in `scope`
+/// for the UTC day stand at the daily limit.
 ///
 /// # Errors
 ///
 /// `refused`'s own, or a fixture statement's.
 pub fn at_daily_limit(kind: &str, scope: &str, refused: impl FnOnce() -> Result<()>) -> Result<()> {
-    d1(&format!(
-        "WITH RECURSIVE fixture(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM fixture WHERE i < {DAILY_LIMIT})
-         INSERT INTO notifications (kind, event, recipient, detail, created_at)
-           SELECT '{kind}', '{scope}@' || strftime('%Y-%m-%dT%H:%M:%fZ', 'now') || '/!' || i,
-                  {SEEDED}, '{{}}', '2026-01-01T00:00:00.000Z' FROM fixture"
-    ))?;
-    refused()?;
-    d1("DELETE FROM notifications WHERE event LIKE '%/!%'")
+    with_mails_owed(kind, scope, DAILY_LIMIT, SEEDED, refused)
+}
+
+/// Runs `refused` while another account's un-yanks in `scope` for the
+/// UTC day stand at the limit for all the scope's accounts
+/// (`quota::SCOPE_UNYANK_MAILS_PER_DAY`).
+///
+/// # Errors
+///
+/// `refused`'s own, or a fixture statement's.
+pub fn at_scope_unyank_limit(scope: &str, refused: impl FnOnce() -> Result<()>) -> Result<()> {
+    with_mails_owed("version_unyanked", scope, 3 * DAILY_LIMIT, FRIEND, refused)
 }
 
 /// The newest mail of `kind` for a change of `version`'s yank flag is

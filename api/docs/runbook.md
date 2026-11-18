@@ -1309,8 +1309,9 @@ login` and a token exchange owe none.
 
 An un-yank and an addition can each be repeated without end, a yank
 undoing the one and a removal the other, so each is bounded
-(`quota::SCOPE_GRANT_MAILS_PER_DAY`): once an account's un-yanks in a
-scope owe 30 mails in a UTC day, or the scope's additions do - an
+(`quota::SCOPE_GRANT_MAILS_PER_DAY`, `quota::SCOPE_UNYANK_MAILS_PER_DAY`):
+once an account's un-yanks in a scope owe 30 mails in a UTC day, or all
+accounts' un-yanks in it owe 90, or the scope's additions owe 30 - an
 addition owes the member's and each owner's - the next one answers
 `429` with code `scope_rate_limited` until the day rolls over. The
 statement that makes the change counts the day's rows itself, so

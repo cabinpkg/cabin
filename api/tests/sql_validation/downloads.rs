@@ -58,7 +58,8 @@ fn download_counting_is_verified_only_and_scope_isolated() {
             "1.0.0",
             "2026-07-16T00:00:00.000Z",
             30,
-            2
+            2,
+            90
         ],
     )
     .expect("yank alpha");

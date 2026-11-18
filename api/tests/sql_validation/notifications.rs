@@ -3,7 +3,7 @@
 //! claim.
 
 use cabin_api_worker::notifications::{ATTEMPTS, BACKOFF_MINUTES, account_created, mail};
-use cabin_api_worker::quota::SCOPE_GRANT_MAILS_PER_DAY;
+use cabin_api_worker::quota::{SCOPE_GRANT_MAILS_PER_DAY, SCOPE_UNYANK_MAILS_PER_DAY};
 use cabin_api_worker::sql;
 use rusqlite::Connection;
 use rusqlite::types::Value;
@@ -160,7 +160,13 @@ fn set_yanked(conn: &Connection, scope: &str, yanked: bool, user: i64, minutes: 
                 [
                     vec![flag()],
                     package(),
-                    vec![text("1.0.0"), text(&at(minutes)), limit(), real(user)],
+                    vec![
+                        text("1.0.0"),
+                        text(&at(minutes)),
+                        limit(),
+                        real(user),
+                        Value::Real(f64::from(SCOPE_UNYANK_MAILS_PER_DAY)),
+                    ],
                 ]
                 .concat(),
             ),
@@ -841,8 +847,8 @@ fn a_granted_claim_owes_its_account_one_mail() {
 }
 
 /// An account's un-yanks in a scope stop at the day's limit, which is
-/// the account's own, the scope's own and the day's own; its yanks
-/// never stop.
+/// the account's own, the scope's own and the day's own, and all
+/// accounts' stop at the scope's; yanks never stop.
 #[test]
 fn a_scopes_unyanks_of_a_day_are_bounded_and_its_yanks_are_not() {
     let conn = migrated_connection();
@@ -875,9 +881,24 @@ fn a_scopes_unyanks_of_a_day_are_bounded_and_its_yanks_are_not() {
         [0; 5],
         "the day's limit"
     );
-    let hubot = create_account(&conn, "480938", "hubot");
-    assert_eq!(set_yanked(&conn, "alpha", false, hubot, 1439), [1; 5]);
-    assert_eq!(set_yanked(&conn, "alpha", true, hubot, 1439), [1; 5]);
+    // Two more accounts spend theirs, and that is the scope's limit.
+    let [hubot, octocat, defunkt] = [
+        ("480938", "hubot"),
+        ("583231", "octocat"),
+        ("9919", "defunkt"),
+    ]
+    .map(|(account, login)| create_account(&conn, account, login));
+    for account in [hubot, octocat] {
+        for _ in 0..SCOPE_GRANT_MAILS_PER_DAY {
+            assert_eq!(set_yanked(&conn, "alpha", false, account, 1439), [1; 5]);
+            assert_eq!(set_yanked(&conn, "alpha", true, account, 1439), [1; 5]);
+        }
+    }
+    assert_eq!(
+        set_yanked(&conn, "alpha", false, defunkt, 1439),
+        [0; 5],
+        "the scope's limit"
+    );
     assert_eq!(set_yanked(&conn, "beta", true, 2, 1439), [1; 5]);
     assert_eq!(set_yanked(&conn, "beta", false, 2, 1439), [1; 5]);
     assert_eq!(set_yanked(&conn, "alpha", false, 2, 1440), [1; 5]);
