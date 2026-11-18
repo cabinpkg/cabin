@@ -3,9 +3,10 @@
 //! under the sign-up gate's 90 days is refused with the first eligible
 //! date, and a fresh account past them is created and signed in
 //! (`api/src/signup.rs`). Each granted sign-in also reads the account's
-//! notification address (`api/src/notification_email.rs`).
+//! notification address (`api/src/notification_email.rs`), and so does
+//! a login-session mint.
 
-use anyhow::{Result, bail};
+use anyhow::{Context as _, Result, bail};
 
 use crate::context::{Base, Smoke};
 use crate::legs::claims::{location_value, state_value};
@@ -62,11 +63,8 @@ pub fn run(smoke: &mut Smoke, github_port: u16) -> Result<()> {
     let block = callback_roundtrip(smoke)?;
     expect_dashboard(smoke, &block, "an old-enough fresh account's sign-in")?;
     // The sign-in that creates an account stores its address with it.
-    let created = d1_rows(
-        "SELECT u.notification_email AS address FROM users u \
-         JOIN identities i ON i.user_id = u.id WHERE i.provider_account_id = '4'",
-    )?;
-    if created.first().and_then(|row| row["address"].as_str()) != Some("smoke@example.com") {
+    let created = stored_address("4")?;
+    if created.as_deref() != Some("smoke@example.com") {
         bail!("the created account does not hold the verified primary address: {created:?}");
     }
 
@@ -74,28 +72,28 @@ pub fn run(smoke: &mut Smoke, github_port: u16) -> Result<()> {
     notification_address(smoke, github_port)
 }
 
-/// What a sign-in does to the seeded account's notification address,
-/// under each answer the mock's `/user/emails` gives. The steps run in
-/// this order because the later ones need a stored address to keep.
+/// What a sign-in and a login-session mint do to the seeded account's
+/// notification address, under each answer the mock's `/user/emails`
+/// gives. The steps run in this order because the later ones need a
+/// stored address to keep.
 fn notification_address(smoke: &mut Smoke, github_port: u16) -> Result<()> {
     const SMOKE: &str = r#""notification_email":"smoke@example.com""#;
     const MOVED: &str = r#""notification_email":"moved@example.com""#;
     step("a sign-in stores the verified primary address and keeps it through an outage");
     // The primary entry is on the listing's second page.
     signed_in_address(smoke, github_port, "listed", SMOKE)?;
-    // The same address again is no write: with every write of the
-    // column refused, the sign-in's batch still commits.
-    d1("CREATE TRIGGER smoke_refuse_notification_email \
-        BEFORE UPDATE OF notification_email ON users \
-        BEGIN SELECT RAISE(ABORT, 'smoke'); END")?;
-    let unchanged = signed_in_address(smoke, github_port, "listed", SMOKE);
-    d1("DROP TRIGGER smoke_refuse_notification_email")?;
-    unchanged?;
+    // The same address again is no write.
+    with_address_writes_refused(|| signed_in_address(smoke, github_port, "listed", SMOKE))?;
     signed_in_address(smoke, github_port, "moved", MOVED)?;
-    // GitHub not answering, and a user who declined the scope, say
-    // nothing about the address: the stored one stands.
+    // GitHub not answering, and a grant without the scope, say nothing
+    // about the address: the stored one stands after a sign-in and
+    // after a login-session mint, and neither refuses the mint - not
+    // even a listing that never answers. The unscoped listing is there
+    // to read.
     signed_in_address(smoke, github_port, "down", MOVED)?;
     signed_in_address(smoke, github_port, "unscoped", MOVED)?;
+    minted_address(smoke, github_port, "stalled", Some("moved@example.com"))?;
+    minted_address(smoke, github_port, "unscoped", Some("moved@example.com"))?;
     // GitHub answering that the primary address is unverified clears it.
     signed_in_address(
         smoke,
@@ -103,7 +101,69 @@ fn notification_address(smoke: &mut Smoke, github_port: u16) -> Result<()> {
         "unverified",
         r#""notification_email":null"#,
     )?;
-    mock_post(smoke, github_port, "/__emails/listed")
+
+    step("a login-session mint stores the verified primary address");
+    // These mints leave the mock on its default listing.
+    minted_address(smoke, github_port, "listed", Some("smoke@example.com"))?;
+    with_address_writes_refused(|| {
+        minted_address(smoke, github_port, "listed", Some("smoke@example.com"))
+    })
+}
+
+/// Runs `check` with every write of the address column refused, so a
+/// batch that writes an unchanged address again fails instead of
+/// committing.
+fn with_address_writes_refused(check: impl FnOnce() -> Result<()>) -> Result<()> {
+    d1("CREATE TRIGGER smoke_refuse_notification_email \
+        BEFORE UPDATE OF notification_email ON users \
+        BEGIN SELECT RAISE(ABORT, 'smoke'); END")?;
+    let outcome = check();
+    d1("DROP TRIGGER smoke_refuse_notification_email")?;
+    outcome
+}
+
+/// Mints a login session for the seeded account under the mock's
+/// `emails` mode, revokes it, and expects the account to hold the
+/// `expected` notification address afterwards.
+fn minted_address(
+    smoke: &mut Smoke,
+    github_port: u16,
+    emails: &str,
+    expected: Option<&str>,
+) -> Result<()> {
+    mock_post(smoke, github_port, &format!("/__emails/{emails}"))?;
+    let url = smoke.url(Base::Web, "/api/v1/sessions/tokens");
+    let status = smoke.http("PUT", &url, &[], Some(br#"{"github_token":"gho_smoke"}"#))?;
+    if status != 200 {
+        bail!("a session mint under '{emails}' e-mails answered {status}, expected 200");
+    }
+    let minted: serde_json::Value =
+        serde_json::from_slice(&smoke.body).context("parse the mint answer")?;
+    let token = minted["token"]
+        .as_str()
+        .context("no token in the mint answer")?;
+    let auth = vec![("Authorization".to_owned(), format!("Bearer {token}"))];
+    let status = smoke.http("DELETE", &url, &auth, None)?;
+    if status != 204 {
+        bail!("revoking the minted session answered {status}, expected 204");
+    }
+    let stored = stored_address("0")?;
+    if stored.as_deref() != expected {
+        bail!("a session mint under '{emails}' e-mails left {stored:?}, expected {expected:?}");
+    }
+    Ok(())
+}
+
+/// The notification address stored for a GitHub account id.
+fn stored_address(github_id: &str) -> Result<Option<String>> {
+    let rows = d1_rows(&format!(
+        "SELECT u.notification_email AS address FROM users u \
+         JOIN identities i ON i.user_id = u.id WHERE i.provider_account_id = '{github_id}'"
+    ))?;
+    Ok(rows
+        .first()
+        .and_then(|row| row["address"].as_str())
+        .map(str::to_owned))
 }
 
 /// Signs the seeded account in under the mock's `emails` mode and

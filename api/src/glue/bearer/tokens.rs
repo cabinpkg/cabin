@@ -353,13 +353,13 @@ struct GithubUserApi<'a> {
 }
 
 impl session_tokens::GithubUserProvider for GithubUserApi<'_> {
-    async fn user_id(&self, github_token: &str) -> Result<i64, String> {
+    async fn check(&self, github_token: &str) -> Result<session_tokens::Checked, String> {
         let body = match web_glue::github_check_token(self.env, github_token).await {
             Ok(Some(body)) => body,
             Ok(None) => return Err("github check-token refused the token".to_owned()),
             Err(err) => return Err(format!("github check-token fetch failed: {err}")),
         };
-        session_tokens::parse_check_token_user_id(&body)
+        session_tokens::parse_check_token(&body)
             .ok_or_else(|| "github check-token body did not parse".to_owned())
     }
 }
@@ -377,7 +377,10 @@ impl session_tokens::GithubUserProvider for GithubUserApi<'_> {
 /// byte-identical uniform 401 with the real reason logged. The write
 /// gate comes last, so only an admitted account learns the breaker
 /// state, at the price of a GitHub call on an over-budget mint.
-/// Returns the minted row id so the request log ties to the row.
+/// A mint that passes them all reads the account's notification
+/// address with the presented token, as the web login does
+/// ([`web_glue::notification_email_lookup`]), which never decides the
+/// mint. Returns the minted row id so the request log ties to the row.
 pub(super) async fn session_mint_response(
     req: &mut Request,
     env: &Env,
@@ -395,10 +398,11 @@ pub(super) async fn session_mint_response(
     let Some(body) = bounded_body(req, MAX_MUTATION_BODY_BYTES).await? else {
         return refused("body over the cap".to_owned());
     };
-    let github_id = match session_tokens::resolve_github_id(&body, &GithubUserApi { env }).await {
-        Ok(github_id) => github_id,
+    let proof = match session_tokens::resolve_github_id(&body, &GithubUserApi { env }).await {
+        Ok(proof) => proof,
         Err(reason) => return refused(reason),
     };
+    let github_id = proof.checked.user_id;
     if !github_id_allowed(env, github_id)? {
         console_log!("session mint refused: github id {github_id} is not allowlisted");
         return Ok((private_alpha_response(403)?, None));
@@ -414,7 +418,10 @@ pub(super) async fn session_mint_response(
     let id = auth::hex(&web_glue::random_bytes::<16>()?);
     let token = auth::format_session_token(&web_glue::random_bytes()?);
     let (created_at, expires_at) = token_window(session_tokens::TOKEN_TTL_SECS);
-    db.batch(vec![
+    let lookup =
+        web_glue::notification_email_lookup(env, &proof.github_token, proof.checked.email_scope)
+            .await;
+    let mut statements = vec![
         db.prepare(sql::INSERT_SESSION_TOKEN).bind(&[
             id.as_str().into(),
             js_int(user.user_id),
@@ -424,8 +431,14 @@ pub(super) async fn session_mint_response(
         ])?,
         db.prepare(sql::PRUNE_EXPIRED_SHORT_LIVED_TOKENS)
             .bind(&[created_at.as_str().into()])?,
-    ])
-    .await?;
+    ];
+    statements.extend(web_glue::notification_email_statement(
+        db,
+        &github_id.to_string(),
+        user.notification_email.as_deref(),
+        &lookup,
+    )?);
+    db.batch(statements).await?;
 
     // The plaintext is rendered exactly once, here; D1 holds only the
     // SHA-256 hex.

@@ -68,10 +68,11 @@ statements! {
          FROM identities i JOIN users u ON u.id = i.user_id \
          WHERE i.provider = ?1 AND i.provider_account_id = ?2";
 
-    /// Stores what a sign-in read as the identity's notification
-    /// address (`crate::notification_email`), NULL for none. Runs in
-    /// the sign-in's batch after the identity upsert, so it reaches a
-    /// user that batch created too, and only when the value changes.
+    /// Stores what a sign-in or a session mint read as the identity's
+    /// notification address (`crate::notification_email`), NULL for
+    /// none, and only when the value changes. In the sign-in's batch it
+    /// runs after the identity upsert, so it reaches a user that batch
+    /// created too.
     SET_NOTIFICATION_EMAIL =
         "UPDATE users SET notification_email = ?3 \
          WHERE id = (SELECT user_id FROM identities \

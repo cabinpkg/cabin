@@ -1,9 +1,12 @@
 //! The account's notification address: the verified primary e-mail of
-//! its GitHub account, read at an interactive sign-in and kept in
+//! its GitHub account, read at each interactive sign-in - the
+//! website's, or `cabin login`'s session mint - and kept in
 //! `users.notification_email`. It is the address for the account's
 //! notices and nothing more: the account stays the numeric GitHub id,
 //! and no address is ever matched against another account's, served to
 //! anyone but its owner, or logged.
+
+use std::time::Duration;
 
 use serde::Deserialize;
 
@@ -16,6 +19,11 @@ pub const PAGE_SIZE: usize = 100;
 /// Pages read before the search for the primary entry gives up.
 pub const MAX_PAGES: usize = 10;
 
+/// How long a sign-in or a session mint waits for the whole read
+/// before it goes on without one: a GitHub that stalls must not stall
+/// its caller, and `cabin login` gives its mint 30 seconds in all.
+pub const DEADLINE: Duration = Duration::from_secs(5);
+
 /// What a sign-in learned about the address.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Lookup {
@@ -25,7 +33,7 @@ pub enum Lookup {
     Unverified,
     /// GitHub lists no primary address the registry can use.
     NoPrimary,
-    /// The sign-in did not grant [`SCOPE`].
+    /// The sign-in's token was not granted [`SCOPE`].
     NoScope,
     /// GitHub did not answer the read.
     Failed,
@@ -44,9 +52,9 @@ impl Lookup {
     }
 }
 
-/// Whether the scopes GitHub granted a token, comma-separated as its
-/// token response lists them, cover the read. `user` includes
-/// `user:email`.
+/// Whether scopes GitHub granted a token cover the read: one scope, or
+/// several comma-separated as its token response lists them. `user`
+/// includes `user:email`.
 pub fn scope_granted(granted: &str) -> bool {
     granted
         .split(',')
