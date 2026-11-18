@@ -337,7 +337,7 @@ Smoke checks after any deploy:
 
 ```sh
 curl -sS -o /dev/null -w '%{http_code}\n' https://registry.cabinpkg.com/healthz   # 200
-curl -sS -o /dev/null -w '%{http_code}\n' https://registry.cabinpkg.com/config.json   # 200 (503 under reads_blocked)
+curl -sS -o /dev/null -w '%{http_code}\n' https://registry.cabinpkg.com/config.json   # 200, in every service mode
 curl -sS -D - https://registry.cabinpkg.com/unknown/path   # uniform 401 envelope,
 # with WWW-Authenticate: Cabin login_url="https://cabinpkg.com/docs/remote-registry"
 curl -sS -o /dev/null -w '%{http_code}\n' https://cabinpkg.com/api/v1/user   # 401 (session plane)
@@ -613,7 +613,7 @@ a write block cannot fix read-driven spend. **Setting** the var is the
 act that arms the read-side breaker: the configured value becomes the
 budget, and exhausting it moves the mode to `reads_blocked`, where
 authenticated data-plane reads answer `503` (the session plane, the
-stats, the admin plane, and the verifier's config/artifact
+stats, the admin plane, `config.json`, and the verifier's artifact
 fetches keep working). Do not set it before
 the activation procedure below.
 
