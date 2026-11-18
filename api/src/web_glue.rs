@@ -8,11 +8,14 @@
 //! in [`crate::glue`]; no plane accepts another's credential. Sessions
 //! and GitHub access tokens are never logged.
 
+use std::pin::pin;
+
+use futures_util::future::{Either, select};
 use serde::Deserialize;
 use worker::wasm_bindgen::JsValue;
 use worker::{
-    D1Database, Env, Fetch, Headers, Method, Request, RequestInit, Response, console_error,
-    console_log,
+    D1Database, D1PreparedStatement, Delay, Env, Fetch, Headers, Method, Request, RequestInit,
+    Response, console_error, console_log,
 };
 
 use crate::glue::{changed_rows, github_id_allowed, js_int, non_negative, now_iso8601};
@@ -437,12 +440,13 @@ async fn sign_in(
     }
 
     // The notification address is read with the sign-in's own token
-    // and never decides the sign-in. Only the reason one is missing is
-    // logged, never an address.
-    let lookup = notification_email_lookup(env, &grant).await;
-    if let Some(reason) = lookup.unavailable() {
-        console_log!("sign-in: no notification address read: {reason}");
-    }
+    // and never decides the sign-in.
+    let lookup = notification_email_lookup(
+        env,
+        &grant.access_token,
+        notification_email::scope_granted(&grant.scope),
+    )
+    .await;
     let stored_email = existing_user
         .as_ref()
         .and_then(|existing| existing.notification_email.as_deref());
@@ -469,13 +473,12 @@ async fn sign_in(
             user.login.into(),
         ])?,
     ];
-    if let Some(address) = notification_email::change(stored_email, &lookup) {
-        statements.push(db.prepare(sql::SET_NOTIFICATION_EMAIL).bind(&[
-            GITHUB_PROVIDER.into(),
-            account_id.as_str().into(),
-            address.map_or(JsValue::NULL, JsValue::from),
-        ])?);
-    }
+    statements.extend(notification_email_statement(
+        db,
+        &account_id,
+        stored_email,
+        &lookup,
+    )?);
     statements.extend([
         db.prepare(sql::PRUNE_EXPIRED_BROWSER_SESSIONS)
             .bind(&[secs(now)])?,
@@ -672,7 +675,7 @@ pub(crate) struct UserRecord {
     pub(crate) user_id: i64,
     login_snapshot: String,
     quota_class: String,
-    notification_email: Option<String>,
+    pub(crate) notification_email: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1358,20 +1361,38 @@ pub(crate) async fn github_check_token(
     Ok(Some(response.bytes().await?))
 }
 
-/// Reads the account's notification address with the sign-in's token
-/// ([`notification_email`]). Never an `Err`: a read GitHub does not
-/// answer is [`notification_email::Lookup::Failed`], so the address
-/// cannot fail a sign-in. Each page is asked for by number rather than
-/// by following a `Link` header, so the token only ever goes to the
-/// API base.
-async fn notification_email_lookup(env: &Env, grant: &Grant) -> notification_email::Lookup {
-    use notification_email::{Lookup, MAX_PAGES, PAGE_SIZE, Page};
-    if !notification_email::scope_granted(&grant.scope) {
+/// Reads the account's notification address with the GitHub access
+/// token a sign-in or a session mint holds ([`notification_email`]);
+/// `scope_granted` is whether GitHub granted that token the read.
+/// Never an `Err`, and never longer than
+/// [`notification_email::DEADLINE`]: a read GitHub does not answer in
+/// time is [`notification_email::Lookup::Failed`], so the address can
+/// neither fail nor stall its caller.
+pub(crate) async fn notification_email_lookup(
+    env: &Env,
+    access_token: &str,
+    scope_granted: bool,
+) -> notification_email::Lookup {
+    use notification_email::{DEADLINE, Lookup};
+    if !scope_granted {
         return Lookup::NoScope;
     }
+    let listing = pin!(notification_email_listing(env, access_token));
+    let deadline = pin!(Delay::from(DEADLINE));
+    match select(listing, deadline).await {
+        Either::Left((lookup, _)) => lookup,
+        Either::Right(_) => Lookup::Failed,
+    }
+}
+
+/// The primary entry of the token user's e-mail listing. Each page is
+/// asked for by number rather than by following a `Link` header, so
+/// the token only ever goes to the API base.
+async fn notification_email_listing(env: &Env, access_token: &str) -> notification_email::Lookup {
+    use notification_email::{Lookup, MAX_PAGES, PAGE_SIZE, Page};
     for page in 1..=MAX_PAGES {
         let path = format!("/user/emails?per_page={PAGE_SIZE}&page={page}");
-        let Ok(Some(body)) = github_get(env, &grant.access_token, &path).await else {
+        let Ok(Some(body)) = github_get(env, access_token, &path).await else {
             return Lookup::Failed;
         };
         if let Page::Settled(lookup) = notification_email::read_page(&body) {
@@ -1379,6 +1400,30 @@ async fn notification_email_lookup(env: &Env, grant: &Grant) -> notification_ema
         }
     }
     Lookup::Failed
+}
+
+/// What a sign-in or a session mint adds to its batch for the GitHub
+/// account's notification address: nothing while the `stored` one
+/// stands ([`notification_email::change`]). Logs why no address was
+/// read, and never an address.
+pub(crate) fn notification_email_statement(
+    db: &D1Database,
+    account_id: &str,
+    stored: Option<&str>,
+    lookup: &notification_email::Lookup,
+) -> worker::Result<Option<D1PreparedStatement>> {
+    if let Some(reason) = lookup.unavailable() {
+        console_log!("no notification address read: {reason}");
+    }
+    notification_email::change(stored, lookup)
+        .map(|address| {
+            db.prepare(sql::SET_NOTIFICATION_EMAIL).bind(&[
+                GITHUB_PROVIDER.into(),
+                account_id.into(),
+                address.map_or(JsValue::NULL, JsValue::from),
+            ])
+        })
+        .transpose()
 }
 
 /// The authenticated user's numeric id and login; `None` covers both a

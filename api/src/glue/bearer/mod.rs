@@ -173,7 +173,7 @@ pub(super) async fn handle_website(
 /// (`wrangler.jsonc`), spent before the body, the JWT, or any JWKS
 /// access is touched, so unauthenticated traffic cannot buy
 /// verification work - in particular the unknown-kid JWKS refetch
-/// (`trustpub::verify`) - or the mint's outbound GitHub call beyond
+/// (`trustpub::verify`) - or the mint's outbound GitHub calls beyond
 /// the budget. The refusal is one fixed 429 on every endpoint,
 /// decided before any credential is read, so it carries no validity
 /// signal; its `Retry-After` mirrors the binding's period. A missing

@@ -763,7 +763,9 @@ pub struct DeviceAuthorization {
 }
 
 /// Start the GitHub OAuth device flow: request a device + user code
-/// pair for `client_id` with an empty scope.  `github_url` is the
+/// pair for `client_id`, asking for the `user:email` scope alone:
+/// the registry reads the account's verified primary address with
+/// the grant, as its notification address.  `github_url` is the
 /// OAuth host (`https://github.com` in production; tests point it at
 /// a loopback mock, the only cleartext host allowed).
 ///
@@ -792,7 +794,7 @@ pub fn request_device_authorization(
     let response = agent
         .request("POST", &url)
         .set("Accept", "application/json")
-        .send_form(&[("client_id", client_id), ("scope", "")])
+        .send_form(&[("client_id", client_id), ("scope", "user:email")])
         .map_err(|err| RegistryApiError::GithubDeviceFlow {
             message: match err {
                 ureq::Error::Status(status, _) => {
@@ -2669,7 +2671,7 @@ mod tests {
     }
 
     /// The device-code request: `POST /login/device/code` with the
-    /// client id and an empty scope as the form body, parsing the
+    /// client id and the `user:email` scope as the form body, parsing the
     /// code pair and the poll parameters.
     #[test]
     fn request_device_authorization_posts_the_client_id() {
@@ -2688,7 +2690,7 @@ mod tests {
         assert_eq!(captured.method, "POST");
         assert_eq!(captured.path, "/login/device/code");
         assert_eq!(captured.authorization, None);
-        assert_eq!(captured.body, b"client_id=Ov23xTest&scope=");
+        assert_eq!(captured.body, b"client_id=Ov23xTest&scope=user%3Aemail");
     }
 
     /// The poll state machine: `authorization_pending` keeps the

@@ -65,7 +65,7 @@ is told the date it becomes eligible) - bound to the GitHub account
 through the `identities` table - the numeric id (never the login, which can be renamed
 and reassigned) is the external identity, and everything package- or
 token-related keys on the registry's own user id.
-Sign-in asks GitHub for the `user:email` scope only, and keeps the
+Sign-in and `cabin login` ask GitHub for the `user:email` scope only, and the registry keeps the
 account's verified primary address in `users.notification_email` as the
 address for notices about it (`src/notification_email.rs`;
 [`../docs/remote-registry.md`](../docs/remote-registry.md),

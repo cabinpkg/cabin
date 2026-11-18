@@ -169,7 +169,8 @@ waiting for the login to be approved on github.com ...
 
 The client discovers the registry's [`api`](#registry-configuration) origin from `config.json`
 (public even on an [`auth-required`](#registry-configuration) registry, so a first login needs
-no credential), requests a device code from github.com, and prints the verification URL and user code (to
+no credential), requests a device code from github.com - asking for the `user:email` scope alone, which the
+registry uses for the account's [notification address](#notification-address) - and prints the verification URL and user code (to
 stderr, so they show under `--quiet`).  On an interactive terminal it offers to open the page
 in the browser - only after Enter, never unprompted - and piped runs just print the URL and
 code.  It then polls GitHub at the server-set interval, honoring `slow_down`, until the login
@@ -1016,9 +1017,10 @@ Signing in grants nothing by itself: during the hosted registry's private alpha 
 account the allowlist does not name is refused here, whatever it proves.
 Check-token also pins the credential to the registry's own OAuth app: a token issued by any
 other OAuth app - even one the same account authorized - or a personal access token proves
-nothing and refuses, so a third party's GitHub grant can never become a registry login.  The
-presented GitHub access token is used for that single call and dropped: never stored, never
-logged.
+nothing and refuses, so a third party's GitHub grant can never become a registry login.  A
+mint that succeeds also reads the account's [notification address](#notification-address) with
+the presented GitHub access token, when its grant carries the `user:email` scope; a read that
+fails never fails the mint.  The token is then dropped: never stored, never logged.
 
 The same pinning bounds `cabin login` itself: the CLI's device flow requests its grants under
 the hosted registry's OAuth app, so a mint pinned to a different app refuses them.  The CLI
@@ -1066,14 +1068,14 @@ a repeated `DELETE` idempotent - the same contract as the
 
 The hosted registry keeps one notification address per account, for notices about that
 account: the verified primary email address of the account's GitHub account.  The website's
-sign-in asks GitHub for the `user:email` scope and nothing else, reads the account's addresses,
-and stores only the one GitHub marks both primary and verified.  An account without one still
-signs in and has no address on file.
+sign-in and `cabin login` each ask GitHub for the `user:email` scope and nothing else; the
+registry reads the account's addresses with that grant and stores only the one GitHub marks
+both primary and verified.  An account without one still signs in and has no address on file.
 
-Every later sign-in on the website reads the address again, so changing it means changing it
-on GitHub and signing in again.  A sign-in that cannot read it - GitHub does not answer, or
-the scope was not granted - leaves the stored address as it is; one that learns the account
-has no verified primary address any more removes it.
+Every later sign-in on the website and every `cabin login` reads the address again, so
+changing it means changing it on GitHub and signing in again.  A sign-in that cannot read it -
+GitHub does not answer, or the grant does not carry the scope - leaves the stored address as it
+is; one that learns the account has no verified primary address any more removes it.
 
 The address is not an identity.  Accounts stay keyed by the numeric GitHub id, two accounts
 may hold the same address, and nothing is granted, merged, or transferred because addresses

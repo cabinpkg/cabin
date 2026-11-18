@@ -12,6 +12,8 @@
 
 use serde::Deserialize;
 
+use crate::notification_email;
+
 /// A session's lifetime: half a day, so a leaked credential dies the
 /// same day while one login still covers a working session. The
 /// schema's session CHECK caps the window at one day
@@ -28,15 +30,37 @@ struct MintBody {
 
 /// The check-token fields the mint reads: the token's user, and of the
 /// user the numeric id alone - stable across renames, the identity the
-/// allowlist and `identities` key on.
+/// allowlist and `identities` key on - and the scopes the token was
+/// granted.
 #[derive(Deserialize)]
 struct CheckedToken {
     user: GithubUser,
+    scopes: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
 struct GithubUser {
     id: i64,
+}
+
+/// What GitHub's check-token answer says about a presented access
+/// token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Checked {
+    /// The numeric GitHub id the token authenticates as.
+    pub user_id: i64,
+    /// Whether the token may read the account's e-mail addresses
+    /// ([`crate::notification_email::scope_granted`]): a login from a
+    /// client that asked for no scope cannot.
+    pub email_scope: bool,
+}
+
+/// What a mint body's GitHub access token proved, with the token for
+/// the one read the mint still makes with it: the account's
+/// notification address.
+pub struct Proof {
+    pub checked: Checked,
+    pub github_token: String,
 }
 
 /// The source of the GitHub identity a presented access token proves.
@@ -49,27 +73,33 @@ struct GithubUser {
 // single-threaded, and the host-side consumer is the test executor.
 #[allow(async_fn_in_trait)]
 pub trait GithubUserProvider {
-    /// The numeric GitHub id `github_token` authenticates as. `Err`
-    /// carries the refusal reason for the operator log; every failure -
-    /// a refused read, a network error or timeout, an unparsable body -
-    /// must end in the caller's one uniform 401. Implementations never
-    /// persist or log the access token itself.
-    async fn user_id(&self, github_token: &str) -> Result<i64, String>;
+    /// What `github_token` proves. `Err` carries the refusal reason
+    /// for the operator log; every failure - a refused read, a network
+    /// error or timeout, an unparsable body - must end in the caller's
+    /// one uniform 401. Implementations never persist or log the access
+    /// token itself.
+    async fn check(&self, github_token: &str) -> Result<Checked, String>;
 }
 
-/// Parses a check-token response body to the token user's numeric id;
-/// unknown fields are GitHub's business.
-pub fn parse_check_token_user_id(body: &[u8]) -> Option<i64> {
-    serde_json::from_slice::<CheckedToken>(body)
-        .ok()
-        .map(|checked| checked.user.id)
+/// Parses a check-token response body; unknown fields are GitHub's
+/// business.
+pub fn parse_check_token(body: &[u8]) -> Option<Checked> {
+    let checked: CheckedToken = serde_json::from_slice(body).ok()?;
+    Some(Checked {
+        user_id: checked.user.id,
+        email_scope: checked
+            .scopes
+            .iter()
+            .flatten()
+            .any(|scope| notification_email::scope_granted(scope)),
+    })
 }
 
 /// The mint's credential resolution: request body to proven GitHub id.
 /// Every refusal is a reason for the log, and the caller's one uniform
 /// 401 - a malformed body is an absent credential, not a 400. The
-/// GitHub access token lives only on this call's stack: never
-/// persisted, never logged.
+/// GitHub access token goes no further than the returned [`Proof`]:
+/// never persisted, never logged.
 ///
 /// # Errors
 ///
@@ -77,7 +107,7 @@ pub fn parse_check_token_user_id(body: &[u8]) -> Option<i64> {
 pub async fn resolve_github_id(
     body: &[u8],
     provider: &impl GithubUserProvider,
-) -> Result<i64, String> {
+) -> Result<Proof, String> {
     let Ok(MintBody { github_token }) = serde_json::from_slice(body) else {
         return Err("malformed body".to_owned());
     };
@@ -87,7 +117,11 @@ pub async fn resolve_github_id(
     if github_token.is_empty() || !github_token.bytes().all(|b| b.is_ascii_graphic()) {
         return Err("malformed body".to_owned());
     }
-    provider.user_id(&github_token).await
+    let checked = provider.check(&github_token).await?;
+    Ok(Proof {
+        checked,
+        github_token,
+    })
 }
 
 #[cfg(test)]
@@ -118,7 +152,7 @@ mod tests {
     }
 
     impl GithubUserProvider for FakeGithub {
-        async fn user_id(&self, github_token: &str) -> Result<i64, String> {
+        async fn check(&self, github_token: &str) -> Result<Checked, String> {
             // The ready-future await keeps the trait's async signature
             // under clippy 1.98's `unused_async_trait_impl`, like the
             // trustpub `TestJwks` fake.
@@ -126,7 +160,10 @@ mod tests {
                 Self::Knows {
                     github_token: known,
                     id,
-                } if *known == github_token => Ok(*id),
+                } if *known == github_token => Ok(Checked {
+                    user_id: *id,
+                    email_scope: false,
+                }),
                 Self::Knows { .. } => Err("github check-token refused the token".to_owned()),
                 Self::Broken => Err("github check-token fetch failed".to_owned()),
             })
@@ -140,8 +177,14 @@ mod tests {
             github_token: "gho_abc",
             id: 42,
         };
-        let resolve = |body: &str| block_on(resolve_github_id(body.as_bytes(), &provider));
-        assert_eq!(resolve(r#"{"github_token": "gho_abc"}"#), Ok(42));
+        let resolve = |body: &str| {
+            block_on(resolve_github_id(body.as_bytes(), &provider))
+                .map(|proof| (proof.checked.user_id, proof.github_token))
+        };
+        assert_eq!(
+            resolve(r#"{"github_token": "gho_abc"}"#),
+            Ok((42, "gho_abc".to_owned()))
+        );
         // Unknown fields, a missing field, non-JSON, and a token that
         // could not be a GitHub token (empty, or carrying bytes no
         // GitHub credential contains) all read as an absent
@@ -169,39 +212,56 @@ mod tests {
             github_token: "gho_abc",
             id: 42,
         };
+        let refusal = |body: &[u8], provider: &FakeGithub| {
+            block_on(resolve_github_id(body, provider))
+                .err()
+                .expect("the provider refuses")
+        };
         assert_eq!(
-            block_on(resolve_github_id(
-                br#"{"github_token": "gho_other"}"#,
-                &provider
-            )),
-            Err("github check-token refused the token".to_owned())
+            refusal(br#"{"github_token": "gho_other"}"#, &provider),
+            "github check-token refused the token"
         );
         assert_eq!(
-            block_on(resolve_github_id(
-                br#"{"github_token": "gho_abc"}"#,
-                &FakeGithub::Broken
-            )),
-            Err("github check-token fetch failed".to_owned())
+            refusal(br#"{"github_token": "gho_abc"}"#, &FakeGithub::Broken),
+            "github check-token fetch failed"
         );
     }
 
     #[test]
-    fn the_check_token_body_parses_on_the_token_users_id_alone() {
+    fn the_check_token_body_parses_on_the_token_users_id_and_scopes() {
+        let checked = |email_scope| {
+            Some(Checked {
+                user_id: 583_231,
+                email_scope,
+            })
+        };
         // GitHub's real check-token answer carries dozens of fields
         // around the nested token user.
         assert_eq!(
-            parse_check_token_user_id(
+            parse_check_token(
                 br#"{"scopes": [], "app": {"client_id": "Ov23x"}, "user": {"login": "octocat", "id": 583231, "type": "User"}}"#
             ),
-            Some(583_231)
+            checked(false)
         );
-        // A user-less 200 (a client-credentials shape) is no identity.
-        assert_eq!(parse_check_token_user_id(br#"{"scopes": []}"#), None);
         assert_eq!(
-            parse_check_token_user_id(br#"{"user": {"login": "octocat"}}"#),
+            parse_check_token(br#"{"scopes": ["read:org", "user:email"], "user": {"id": 583231}}"#),
+            checked(true)
+        );
+        // Scopes that are null or absent are a token without the read,
+        // not a refused login.
+        for body in [
+            &br#"{"scopes": null, "user": {"id": 583231}}"#[..],
+            br#"{"user": {"id": 583231}}"#,
+        ] {
+            assert_eq!(parse_check_token(body), checked(false));
+        }
+        // A user-less 200 (a client-credentials shape) is no identity.
+        assert_eq!(parse_check_token(br#"{"scopes": []}"#), None);
+        assert_eq!(
+            parse_check_token(br#"{"user": {"login": "octocat"}}"#),
             None
         );
-        assert_eq!(parse_check_token_user_id(b"not json"), None);
+        assert_eq!(parse_check_token(b"not json"), None);
     }
 
     /// The publish path's bearer lookup, as `glue::authenticate` binds
@@ -224,8 +284,8 @@ mod tests {
         .expect("auth lookup")
     }
 
-    /// The glue's mint transaction: the insert and the lazy prune,
-    /// committed as one unit like a D1 batch.
+    /// The token statements of the glue's mint transaction: the insert
+    /// and the lazy prune, committed as one unit like a D1 batch.
     fn mint_batch(
         conn: &rusqlite::Connection,
         token_id: &str,
@@ -277,8 +337,8 @@ mod tests {
 
     /// The mint end to end at the layer host tests can drive: the fake
     /// GitHub through [`resolve_github_id`], the allowlist gate, the
-    /// identity resolution, and every D1 statement the glue executes -
-    /// in the glue's order - against the migrated schema, through the
+    /// identity resolution, and the token's D1 statements - in the
+    /// glue's order - against the migrated schema, through the
     /// publish path's auth check, expiry, and revocation. (The wasm
     /// handler's wiring - breaker gate, uniform 401, auth exemption -
     /// is `cargo registry-smoke`'s job.)
@@ -295,7 +355,9 @@ mod tests {
             br#"{"github_token": "gho_abc"}"#,
             &provider,
         ))
-        .expect("the fake proves the id");
+        .expect("the fake proves the id")
+        .checked
+        .user_id;
         assert!(allowlist::parse_allowed_ids("0,42").contains(&github_id));
         let user_id = user_by_identity(&conn, github_id).expect("the identity resolves");
         assert_eq!(user_id, 2);
@@ -414,7 +476,10 @@ mod tests {
             br#"{"github_token": "gho_abc"}"#,
             &FakeGithub::Broken,
         ));
-        assert_eq!(refused, Err("github check-token fetch failed".to_owned()));
+        assert_eq!(
+            refused.err().as_deref(),
+            Some("github check-token fetch failed")
+        );
         assert_eq!(count_tokens(&conn), 0);
     }
 
