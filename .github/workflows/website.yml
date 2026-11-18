@@ -32,7 +32,7 @@ jobs:
   build-work:
     needs: changes
     if: needs.changes.outputs.website == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
 
     defaults:
       run:
