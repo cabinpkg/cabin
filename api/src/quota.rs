@@ -514,7 +514,7 @@ pub fn check_pending_uploads(
 /// every edge request (`CF-Connecting-IP`, which the edge overwrites,
 /// so it is not caller-controlled).  They must be bounded by
 /// *something*: the deployed WAF rate limiter deliberately covers only
-/// the website origin's write/auth surface, never
+/// the `/api/` write/auth surface, never
 /// `registry.cabinpkg.com` reads ([`runbook.md`](../docs/runbook.md),
 /// "Zone rate limiting (WAF)"), so without this one unauthenticated
 /// caller could drain the shared `b_ordinary` pool and 503 everyone
@@ -1022,7 +1022,7 @@ mod tests {
     }
 
     /// Anonymous readers must still land in a per-caller window: the
-    /// WAF rate limiter does not cover the read host, so an unbounded
+    /// WAF rate limiter does not cover the read routes, so an unbounded
     /// anonymous miss path would let one caller drain the shared pool.
     #[test]
     fn anonymous_artifact_reads_key_on_the_client_ip() {

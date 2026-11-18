@@ -55,10 +55,7 @@ challenges requests to `cabinpkg.com` that do not come from a verified
 bot, except the registry's zone route (`/api/*`, which carries the
 OAuth routes under `/api/auth/`), `/catalog-provenance.json`, which the
 registry's cron reads ("Website catalog refresh" below), and `/demo.gif`,
-which the repository README embeds. It also still excepts `/login`,
-`/callback*`, and `/claim/*`, where the OAuth routes used to live; those
-are website paths now, and the exclusions can be removed by hand. The
-rule matches
+which the repository README embeds. The rule matches
 `http.host eq "cabinpkg.com"`, so `registry.cabinpkg.com` is outside it.
 A new zone route in `wrangler.jsonc`, or another website path a machine
 client fetches, needs a hand edit of the rule's exclusions; until then
@@ -76,19 +73,18 @@ requests per 10 seconds:
 
 - Name: `registry-api-rate-limit`
 - Expression:
-  `(http.host eq "cabinpkg.com" and (starts_with(http.request.uri.path, "/api/") or http.request.uri.path eq "/login" or starts_with(http.request.uri.path, "/callback") or starts_with(http.request.uri.path, "/claim/")))`
+  `(starts_with(http.request.uri.path, "/api/"))`
 - Same characteristics: IP. Rate: 50 requests per 10 seconds. Action:
   Block, mitigation timeout 10 seconds.
 - The rule is dashboard-managed: a change to the website origin's
-  registry routes needs a hand edit of the expression. Only its `/api/`
-  arm matches the registry now (the OAuth routes moved under
-  `/api/auth/`); the other three arms match website paths and can be
-  cut by hand.
+  registry routes needs a hand edit of the expression.
 
-The rule keys on `cabinpkg.com` because the hostname-role split put the
-whole write/auth surface on the website origin; it deliberately guards
-only that surface, not `/healthz` or the read routes on
-`registry.cabinpkg.com`. Covering reads with the same 50-per-10 s ceiling
+The rule matches the `/api/` prefix because the hostname-role split put
+the whole write/auth surface under it on the website origin; it
+deliberately guards only that surface, not `/healthz` or the read routes
+on `registry.cabinpkg.com`. The expression names no host, so it also
+counts `/api/` requests to `registry.cabinpkg.com`, which the Worker
+refuses with `401`. Covering reads with the same 50-per-10 s ceiling
 would throttle legitimate `cabin` traffic - resolving and fetching a
 dependency tree fans out many read requests from one IP in seconds -
 while abuse of the omitted routes can at worst exhaust free-plan quotas
