@@ -6,6 +6,7 @@ pub mod anonymous;
 pub mod blobs;
 pub mod claims;
 pub mod finale;
+pub mod notifications;
 pub mod publish;
 pub mod revisions;
 pub mod session;

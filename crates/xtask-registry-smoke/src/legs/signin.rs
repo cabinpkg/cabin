@@ -15,11 +15,10 @@ use crate::servers::{d1, d1_rows};
 use crate::step;
 use crate::text::{capture, first_line, grep_lines, status_line_is, text};
 
-/// The sign-up gate's three roundtrips, in an order that keeps reruns
-/// green: only the `fresh-old` sign-in writes an identity row (github
-/// id 4), and a rerun then takes the existing-user path to the same
-/// `/dashboard/`. The mock's `/user` is restored before the
-/// notification-address checks.
+/// The sign-up gate's three roundtrips. Only the `fresh-old` sign-in
+/// writes an identity row (github id 4), and the seed removes that
+/// account before a rerun (`servers.rs`), so every run creates it. The
+/// mock's `/user` is restored before the notification-address checks.
 ///
 /// # Errors
 ///

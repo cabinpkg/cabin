@@ -24,8 +24,8 @@ use crate::routes::{
     LOGIN_DENIED_REDIRECT, POST_LOGIN_REDIRECT, STATS_PATH, SessionRoute, WebRoute,
 };
 use crate::{
-    auth, breaker, claim, error, governor, governor_client, names, notification_email, quota,
-    session, signup, source, sql, stats, user_api,
+    auth, breaker, claim, error, governor, governor_client, names, notification_email,
+    notifications, quota, session, signup, source, sql, stats, user_api,
 };
 
 /// The one identity provider policy admits today; the `identities`
@@ -458,21 +458,33 @@ async fn sign_in(
     // would store "26405363.0").
     let account_id = user.id.to_string();
     let now = now_secs();
+    let created_at = now_iso8601();
     let expires_at = now + session::SESSION_MAX_AGE_SECS;
     let session_id = auth::hex(&random_bytes::<16>()?);
     let secs = |at: u64| js_int(i64::try_from(at).expect("Unix seconds fit i64"));
     let mut statements = vec![
         db.prepare(sql::INSERT_USER_FOR_NEW_IDENTITY).bind(&[
-            now_iso8601().into(),
+            created_at.as_str().into(),
             GITHUB_PROVIDER.into(),
             account_id.as_str().into(),
         ])?,
         db.prepare(sql::UPSERT_IDENTITY).bind(&[
             GITHUB_PROVIDER.into(),
             account_id.as_str().into(),
-            user.login.into(),
+            user.login.as_str().into(),
         ])?,
     ];
+    // The sign-in that creates the account owes it the mail of that,
+    // recorded with it. It follows the identity upsert, which reads
+    // the user insert's `last_insert_rowid()`.
+    if existing_user.is_none() {
+        statements.push(db.prepare(sql::NOTIFY_ACCOUNT_CREATED).bind(&[
+            GITHUB_PROVIDER.into(),
+            account_id.as_str().into(),
+            notifications::account_created(&user.login).into(),
+            created_at.as_str().into(),
+        ])?);
+    }
     statements.extend(notification_email_statement(
         db,
         &account_id,

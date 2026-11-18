@@ -55,6 +55,21 @@ const ALERTS: &str = "
   SELECT kind, level, since, notified_level, notified_at, attempts, summary
   FROM alerts ORDER BY kind";
 
+// The mails owed to accounts, counted by kind and state
+// (api/docs/runbook.md, "Notifications"); no row is printed, so no
+// account is named.
+const NOTIFICATIONS: &str = "
+  SELECT kind, state, COUNT(*) AS mails, MIN(created_at) AS oldest FROM (
+    SELECT n.kind, n.created_at,
+      CASE WHEN n.sent_at IS NOT NULL THEN 'sent'
+           WHEN n.failed_at IS NOT NULL
+             THEN 'given up: ' || COALESCE(n.failure, 'outcome not recorded')
+           WHEN u.notification_email IS NULL THEN 'no address'
+           WHEN n.attempts = 0 THEN 'queued'
+           ELSE 'retrying: ' || COALESCE(n.failure, 'outcome not recorded') END AS state
+    FROM notifications n JOIN users u ON u.id = n.recipient)
+  GROUP BY kind, state ORDER BY kind, state";
+
 /// # Errors
 ///
 /// If a D1 read fails or answers in an unexpected shape.  A failing
@@ -126,6 +141,24 @@ pub fn run() -> Result<()> {
         ALERTS,
     ]))?;
     for row in results(&alerts)? {
+        let cells: Vec<String> = row
+            .iter()
+            .map(|(key, value)| format!("{key}={}", display(value)))
+            .collect();
+        println!("    {}", cells.join(" "));
+    }
+
+    step("notifications (D1; api/docs/runbook.md \"Notifications\")");
+    let notifications = output(&mut wrangler(&[
+        "d1",
+        "execute",
+        "DB",
+        "--remote",
+        "--json",
+        "--command",
+        NOTIFICATIONS,
+    ]))?;
+    for row in results(&notifications)? {
         let cells: Vec<String> = row
             .iter()
             .map(|(key, value)| format!("{key}={}", display(value)))

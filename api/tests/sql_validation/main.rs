@@ -19,6 +19,7 @@ mod alerts;
 mod auth;
 mod common;
 mod downloads;
+mod notifications;
 mod packages;
 mod publication;
 mod quota;

@@ -12,7 +12,7 @@ use crate::catalog_refresh::{self, Target};
 use crate::governor::OpPool;
 use crate::governor_client::{self, Gate};
 use crate::routes::Route;
-use crate::{alerts, analytics, auth, breaker, publication, sql, upload, verify};
+use crate::{alerts, analytics, auth, breaker, notifications, publication, sql, upload, verify};
 
 use super::{
     CountRecord, changed_rows, consume_one, iso8601_from_ms, js_int, non_negative, now_iso8601,
@@ -505,6 +505,102 @@ async fn report_alerts(
         .collect::<worker::Result<Vec<_>>>()?;
     db.batch(marks).await?;
     Ok(())
+}
+
+/// Sends the mails the accounts are owed (`src/notifications.rs`;
+/// `docs/runbook.md`, "Notifications"). Failures only log; a later
+/// pass tries what this one left.
+pub(super) async fn deliver_notifications(env: &Env, db: &D1Database) {
+    if let Err(err) = try_deliver_notifications(env, db).await {
+        console_error!("notification pass: {err}");
+    }
+}
+
+/// Sends up to `notifications::PER_PASS` mails, one row at a time: it
+/// claims a row, sends its mail, and records what the mail service
+/// answered before it claims the next. The claim reads the address, so
+/// a mail goes to the one on file as it is sent, and a pass that dies
+/// holds one row. The record follows the send, so a pass that dies
+/// between the two leaves a row whose next claim sends its mail again,
+/// and never one recorded as sent that was not. A row whose send or
+/// record fails does not stop the rows after it.
+async fn try_deliver_notifications(env: &Env, db: &D1Database) -> worker::Result<()> {
+    // Read before the first claim, so a pass that cannot send spends
+    // no row's attempt.
+    let origin = web_origin(env)?;
+    let binding = env.send_email("NOTIFY_EMAIL")?;
+    let sender = EmailAddress::new(alerts::SENDER_NAME, alerts::SENDER);
+    for _ in 0..notifications::PER_PASS {
+        let claimed: Option<notifications::Claimed> = db
+            .prepare(sql::CLAIM_NOTIFICATION)
+            .bind(&[
+                now_iso8601().into(),
+                notifications::ATTEMPTS.into(),
+                notifications::BACKOFF_MINUTES.into(),
+            ])?
+            .first(None)
+            .await?;
+        let Some(row) = claimed else { break };
+        let outcome = match notifications::mail(&row.kind, &row.detail, &origin) {
+            Some(mail) => {
+                let message = SendEmailBuilder::builder_with_email_address_and_str(
+                    &sender,
+                    &row.address,
+                    &mail.subject,
+                )
+                .text(&mail.text)
+                .build();
+                binding
+                    .send_with_builder(&message)
+                    .await
+                    .map(|accepted| accepted.message_id())
+                    .map_err(|err| send_failure(&err.into()))
+            }
+            None => Err(notifications::UNREADABLE.to_owned()),
+        };
+        let record = match &outcome {
+            Ok(message_id) => db.prepare(sql::MARK_NOTIFICATION_SENT).bind(&[
+                js_int(row.id),
+                now_iso8601().into(),
+                message_id.as_str().into(),
+            ]),
+            Err(failure) => {
+                console_error!("notification {} ({}) not sent: {failure}", row.id, row.kind);
+                db.prepare(sql::MARK_NOTIFICATION_FAILED).bind(&[
+                    js_int(row.id),
+                    failure.as_str().into(),
+                    js_int(i64::from(notifications::is_permanent(failure))),
+                    now_iso8601().into(),
+                ])
+            }
+        };
+        let recorded = match record {
+            Ok(record) => record.run().await.map(|_| ()),
+            Err(err) => Err(err),
+        };
+        if let Err(err) = recorded {
+            console_error!(
+                "notification {}: its outcome was not recorded: {err}",
+                row.id
+            );
+        }
+    }
+    Ok(())
+}
+
+/// The code a failed send is recorded and logged under. Never the
+/// error's message, which can name the recipient.
+fn send_failure(err: &worker::Error) -> String {
+    let code = match err {
+        worker::Error::EmailRecipientSuppressed(_) => "E_RECIPIENT_SUPPRESSED",
+        worker::Error::EmailRecipientNotAllowed(_) => "E_RECIPIENT_NOT_ALLOWED",
+        worker::Error::RateLimitExceeded(_) => "E_RATE_LIMIT_EXCEEDED",
+        worker::Error::DailyLimitExceeded(_) => "E_DAILY_LIMIT_EXCEEDED",
+        worker::Error::InternalError(_) => "E_INTERNAL_SERVER_ERROR",
+        worker::Error::UnknownJsError { code, .. } => notifications::failure_code(code.as_deref()),
+        _ => notifications::UNKNOWN,
+    };
+    code.to_owned()
 }
 
 /// The statement that records one kind as this pass saw it: firing at

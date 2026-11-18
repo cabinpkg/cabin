@@ -123,10 +123,11 @@
         { "binding": "DOWNLOAD_LOGS", "bucket_name": "registry-download-logs" },
         { "binding": "INDEX", "bucket_name": "registry-index" }
     ],
-    // The cron's alert mail (src/alerts.rs; docs/runbook.md, "Alerts"):
-    // this binding sends from the one sender and from no other. The
-    // recipient is the ALERT_RECIPIENT_EMAIL secret, so its address is not in
-    // this file.
+    // The cron's mail: alerts (src/alerts.rs; docs/runbook.md, "Alerts")
+    // and account notifications (src/notifications.rs; "Notifications").
+    // This binding sends from the one sender and from no other. An
+    // alert's recipient is the ALERT_RECIPIENT_EMAIL secret, so its
+    // address is not in this file; a notification's is its account's.
     "send_email": [
         {
             "name": "NOTIFY_EMAIL",
