@@ -8,6 +8,7 @@ use std::fmt::Write as _;
 use serde::Deserialize;
 
 use crate::breaker::Mode;
+use crate::quota::DEFAULT_CLASS_NAME;
 
 /// The alert kinds: the `alerts.kind` values and the names a mail
 /// uses. A fixed set, so no caller's text becomes a key.
@@ -16,6 +17,11 @@ pub enum Kind {
     ServiceMode,
     Verification,
     Publication,
+    /// The default class's shared daily upload allowance
+    /// (`quota::shared_allowance_alert`).
+    SharedUploads,
+    /// The operator class's.
+    OperatorUploads,
 }
 
 impl Kind {
@@ -24,9 +30,21 @@ impl Kind {
             Kind::ServiceMode => "service_mode",
             Kind::Verification => "verification",
             Kind::Publication => "publication",
+            Kind::SharedUploads => "shared_uploads",
+            Kind::OperatorUploads => "operator_uploads",
         }
     }
 }
+
+/// The kinds that are of one UTC day, each with the quota class whose
+/// shared daily upload allowance it observes. Such a kind starts over
+/// with its day (`sql::START_ALERT_DAY`): it is mailed when it first
+/// fires on a day and when it rises, and the day's end is mailed no
+/// recovery.
+pub const DAILY: [(Kind, &str); 2] = [
+    (Kind::SharedUploads, DEFAULT_CLASS_NAME),
+    (Kind::OperatorUploads, "operator"),
+];
 
 /// The levels above 0, which is healthy. A kind is mailed when its
 /// level rises and, if its firing was mailed, once when it returns to

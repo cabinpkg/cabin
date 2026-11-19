@@ -108,6 +108,12 @@ statements! {
          ON CONFLICT (usage_date, quota_class) DO UPDATE SET \
          bytes = bytes + excluded.bytes, uploads = uploads + 1";
 
+    /// What each quota class's shared allowance has admitted on the UTC
+    /// day of `?1`. A class with no row has admitted nothing.
+    SHARED_DAILY_UPLOADS =
+        "SELECT quota_class, usage_date, bytes, uploads FROM shared_daily_upload_usage \
+         WHERE usage_date = substr(?1, 1, 10)";
+
     /// Charges a new revision's archive to its publisher, and counts
     /// the package toward them when this admission is about to create
     /// it. Runs before [`ENSURE_PACKAGE`], so the package is absent

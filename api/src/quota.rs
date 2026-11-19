@@ -7,6 +7,8 @@
 //! calendar days, compared lexicographically on the stored ISO 8601
 //! timestamps via [`utc_day_prefix`].
 
+use crate::alerts::{CRITICAL, WARNING};
+
 /// The quotas one class grants. The map from class name to quotas lives
 /// in [`quotas_for_class`]; there is deliberately no quota-class table
 /// in D1.
@@ -122,6 +124,45 @@ pub fn shared_class(class: &str) -> &'static str {
         "operator" => "operator",
         _ => DEFAULT_CLASS_NAME,
     }
+}
+
+/// What the cron tells the operator of the shared daily allowance of
+/// `class` on the UTC day `day` (`docs/runbook.md`, "Alerts"), once
+/// its bytes or its uploads have reached half of their limit: the
+/// alert level of the further of the two, [`WARNING`] at half,
+/// [`CRITICAL`] at four fifths and one above that at the limit, and
+/// the line the mail carries. The steps come from the limits the
+/// publish gate enforces. `None` below half.
+pub fn shared_allowance_alert(
+    class: &str,
+    day: &str,
+    bytes: u64,
+    uploads: u64,
+) -> Option<(u8, String)> {
+    let ClassQuotas {
+        shared_upload_bytes_per_day: max_bytes,
+        shared_uploads_per_day: max_uploads,
+        ..
+    } = quotas_for_class(class);
+    let (level, percent) = [(CRITICAL + 1, 100), (CRITICAL, 80), (WARNING, 50)]
+        .into_iter()
+        .find(|&(_, percent)| {
+            bytes * 100 >= max_bytes * percent || uploads * 100 >= max_uploads * percent
+        })?;
+    let used = format!("{uploads} of {max_uploads} uploads, {bytes} of {max_bytes} bytes");
+    let summary = if percent == 100 {
+        format!(
+            "{day} UTC: the {class} class's shared daily upload allowance is used up \
+             ({used}): its new uploads are refused until it starts over at 00:00 UTC, \
+             with no mail"
+        )
+    } else {
+        format!(
+            "{day} UTC: the {class} class's shared daily upload allowance has reached \
+             {percent}% ({used}); it starts over at 00:00 UTC, with no mail"
+        )
+    };
+    Some((level, summary))
 }
 
 /// Publish token-bucket state, as stored on the user row (`rl_tokens`,
@@ -833,6 +874,55 @@ mod tests {
         assert_eq!(
             check_pending_uploads(&pending(3), &quotas),
             Err(UploadDenial::Pending { limit: 3, used: 3 })
+        );
+    }
+
+    /// The operator is told of a shared daily allowance at half, at
+    /// four fifths and at the limit of its bytes or its uploads,
+    /// whichever is further, and of nothing below half. A day that
+    /// stalls short of the limit, because the next archive does not
+    /// fit, is not told as the limit reached.
+    #[test]
+    fn a_shared_allowance_is_told_at_half_four_fifths_and_the_limit() {
+        const GIB: u64 = 1024 * 1024 * 1024;
+        let level = |class, bytes, uploads| {
+            shared_allowance_alert(class, "2026-07-16", bytes, uploads).map(|(level, _)| level)
+        };
+        assert_eq!(level("default", 0, 0), None);
+        assert_eq!(level("default", 5 * GIB / 2 - 1, 249), None);
+        assert_eq!(level("default", 0, 250), Some(WARNING));
+        assert_eq!(level("default", 5 * GIB / 2, 0), Some(WARNING));
+        assert_eq!(level("default", 4 * GIB - 1, 399), Some(WARNING));
+        assert_eq!(level("default", 0, 400), Some(CRITICAL));
+        assert_eq!(level("default", 4 * GIB, 1), Some(CRITICAL));
+        assert_eq!(level("default", 5 * GIB - 1, 499), Some(CRITICAL));
+        assert_eq!(level("default", 0, 500), Some(CRITICAL + 1));
+        assert_eq!(level("default", 5 * GIB, 1), Some(CRITICAL + 1));
+        // The operator class's own limits: 4 GiB and a thousand uploads.
+        assert_eq!(level("operator", 2 * GIB - 1, 499), None);
+        assert_eq!(level("operator", 2 * GIB, 0), Some(WARNING));
+        assert_eq!(level("operator", 0, 800), Some(CRITICAL));
+        assert_eq!(level("operator", 0, 1_000), Some(CRITICAL + 1));
+
+        assert_eq!(
+            shared_allowance_alert("default", "2026-07-16", 1024, 400),
+            Some((
+                CRITICAL,
+                "2026-07-16 UTC: the default class's shared daily upload allowance has reached \
+                 80% (400 of 500 uploads, 1024 of 5368709120 bytes); it starts over at 00:00 \
+                 UTC, with no mail"
+                    .to_owned()
+            ))
+        );
+        assert_eq!(
+            shared_allowance_alert("operator", "2026-07-16", 4 * GIB, 7),
+            Some((
+                CRITICAL + 1,
+                "2026-07-16 UTC: the operator class's shared daily upload allowance is used up \
+                 (7 of 1000 uploads, 4294967296 of 4294967296 bytes): its new uploads are \
+                 refused until it starts over at 00:00 UTC, with no mail"
+                    .to_owned()
+            ))
         );
     }
 

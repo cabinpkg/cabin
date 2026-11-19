@@ -1236,6 +1236,8 @@ table `alerts`, and sends the operator one mail for what changed
 | `service_mode` | WARNING at `warn`, CRITICAL at `writes_blocked` and at `reads_blocked` | the mode is not `normal` ("Budget breaker and service mode") |
 | `verification` | WARNING | a revision has been pending for over an hour, or the count could not be read ("Verification pipeline") |
 | `publication` | CRITICAL | a verified archive has been unplaced, or a change open, for over 45 minutes ("Upload lifecycle") |
+| `shared_uploads` | WARNING at half, CRITICAL at four fifths and at the limit | the default class's shared daily upload allowance has reached that share of its bytes or of its uploads, whichever is further |
+| `operator_uploads` | the same | the operator class's has |
 
 A kind is mailed when it first fires, when its level rises (the step
 from `writes_blocked` to `reads_blocked` is a rise), and once when it
@@ -1249,6 +1251,23 @@ owed one, the most severe first, under the subject
 the kinds. When the pass cannot read the pipeline's state,
 `publication` keeps the level it had and `verification` fires: a count
 that could not be read is not a healthy one.
+
+`shared_uploads` and `operator_uploads` are of one UTC day. Their
+steps are half, four fifths and all of the class's shared daily limits
+(`src/quota.rs`), the values the publish gate refuses at. A kind is
+mailed when it first reaches a step on a day and when it reaches a
+higher one, once for a pass that finds it two steps on, and its line
+gives the day, both usages and both limits. At the limit the subject
+reads CRITICAL and the line says the allowance is used up: the class's
+new uploads are refused until the day ends. A day that stops just
+short of the limit, because the next archive does not fit, stays at
+four fifths, and what a day reaches after its last pass, at 23:45 UTC,
+is not mailed. At 00:00 UTC the kind starts over: the day that ended is
+mailed no recovery, a mail it was still owed is dropped with its
+failed tries, and no day is long enough for the 24-hour repeat. When a
+pass cannot read the day's usage, both kinds stay as they were, and
+still start over at 00:00 UTC. The allowance is enforced whether or
+not its mail went out.
 
 The mail goes from `noreply@cabinpkg.com` to the address in the
 `ALERT_RECIPIENT_EMAIL` secret through the `NOTIFY_EMAIL` binding
