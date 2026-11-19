@@ -4,7 +4,11 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import { shipsHidden, visibleContent } from "./verify-static-content.mjs";
+import {
+    markedText,
+    shipsHidden,
+    visibleContent,
+} from "./verify-static-content.mjs";
 
 test("visible text keeps prose and noscript, drops never-rendered subtrees", () => {
     const { text } = visibleContent(
@@ -144,4 +148,16 @@ test("wrangler serves the built 404 page with a 404 status", async () => {
             .replace(/(^|[\s,{[])\/\/.*$/gm, "$1"),
     );
     assert.equal(parsed.assets.not_found_handling, "404-page");
+});
+
+test("marked text is each visible marked element's collapsed text", () => {
+    assert.deepEqual(
+        markedText(
+            "<dd data-license>  MIT   OR\nApache-2.0 </dd>" +
+                "<div hidden><dd data-license>Zlib</dd></div>" +
+                "<dd data-license>MIT<span hidden> OR Zlib</span></dd>",
+            "data-license",
+        ),
+        ["MIT OR Apache-2.0", "MIT"],
+    );
 });

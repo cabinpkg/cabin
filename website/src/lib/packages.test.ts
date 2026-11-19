@@ -9,6 +9,7 @@ function record(version: string): PackageRecord {
         version,
         manifest: { dependencies: [], features: null },
         upstream: null,
+        license: null,
     };
 }
 

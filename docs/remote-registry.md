@@ -384,7 +384,7 @@ each at its current revision:
 
 ```json
 {"schema":1,"packages":[{"name":"<scope>/<name>","latest":"1.3.1","versions":[
-  {"version":"1.3.1","revision":"<16 hex>","dependencies":{},
+  {"version":"1.3.1","revision":"<16 hex>","dependencies":{},"license":"Zlib",
    "upstream":{"url":"https://...","checksum":"sha256:<64 hex>"}}]}]}
 ```
 
@@ -392,7 +392,7 @@ Packages appear in bytewise name order, each one's versions in descending SemVer
 `latest` is the greatest version without a pre-release tag, the one a `*` requirement selects, or
 the greatest pre-release when a package has nothing else.  Each version carries its served
 packaging `revision` and, when its stored index entry has them, that entry's `dependencies`,
-`dev-dependencies`, and `features` verbatim, plus the `url` and `checksum`
+`dev-dependencies`, `features`, and `license` verbatim, plus the `url` and `checksum`
 of its `upstream` block; nothing else of the entry.  The route is admitted like the package documents: during the private alpha an
 anonymous request gets the uniform private-alpha `401`.
 

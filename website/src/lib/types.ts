@@ -6,6 +6,8 @@ export interface PackageRecord {
     // Dependency and feature declarations (src/lib/manifestInfo.ts).
     manifest: PackageManifestInfo;
     upstream: PackageUpstream | null;
+    // The SPDX license expression, when the version declares one.
+    license: string | null;
 }
 
 // Declared provenance for a package built from an upstream release: the
