@@ -19,6 +19,22 @@ statements! {
              ELSE MIN(alerts.notified_level, excluded.level) END, \
            attempts = CASE WHEN alerts.level = excluded.level THEN alerts.attempts ELSE 0 END";
 
+    /// Starts kind `?1` over when it has been firing since before the
+    /// UTC day of `?2`, for a kind that observes one day
+    /// (`alerts::DAILY`). Run before the pass records the kind: what the
+    /// new day shows is then mailed as a first firing, the day that
+    /// ended is mailed no recovery, and a mail it was still owed is
+    /// dropped. A mail of that day still on its way is no longer the
+    /// row's (`MARK_ALERT_NOTIFIED`): recorded on the row it would make
+    /// a recovery owed. A pass is taken to record before the next one
+    /// samples its clock: one of the day that ended, recording after
+    /// the new day has fired, would put that day's level on the new
+    /// day's row.
+    START_ALERT_DAY =
+        "UPDATE alerts SET level = 0, since = ?2, notified_level = 0, attempts = 0, \
+           attempted_at = NULL \
+         WHERE kind = ?1 AND level > 0 AND substr(since, 1, 10) < substr(?2, 1, 10)";
+
     /// Records a kind healthy again, as of `?2`. The summary stays: the
     /// recovery mail says what recovered.
     CLEAR_ALERT =

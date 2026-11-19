@@ -12,7 +12,9 @@ use crate::catalog_refresh::{self, Target};
 use crate::governor::OpPool;
 use crate::governor_client::{self, Gate};
 use crate::routes::Route;
-use crate::{alerts, analytics, auth, breaker, notifications, publication, sql, upload, verify};
+use crate::{
+    alerts, analytics, auth, breaker, notifications, publication, quota, sql, upload, verify,
+};
 
 use super::{
     CountRecord, changed_rows, consume_one, iso8601_from_ms, js_int, non_negative, now_iso8601,
@@ -406,7 +408,10 @@ pub(super) async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
 /// means the publication is, and no request errors over either. When
 /// the health read fails, `publication` is not recorded and its row
 /// keeps the level it had, while `verification` fires: an unreadable
-/// count must not pass as healthy. The batch that records the kinds
+/// count must not pass as healthy. A kind of one UTC day
+/// (`alerts::DAILY`) starts over with its day before it is recorded,
+/// and is not recorded when the day's usage could not be read. The
+/// batch that records the kinds
 /// also records its own time (`alerts::PASS_META_KEY`), which is how a
 /// check from outside learns that the pass has stopped. The claim,
 /// last in that batch, counts the attempt
@@ -458,6 +463,7 @@ async fn report_alerts(
             publication.map(|alert| (alerts::CRITICAL, alert)),
         )?);
     }
+    statements.extend(observe_daily(db, now).await?);
     statements.push(upsert_meta(db, alerts::PASS_META_KEY, now)?);
     statements.push(db.prepare(sql::CLAIM_ALERTS).bind(&[
         now.into(),
@@ -640,6 +646,53 @@ fn observe(
             .prepare(sql::CLEAR_ALERT)
             .bind(&[kind.as_str().into(), now.into()]),
     }
+}
+
+/// The statements that record the kinds of one UTC day
+/// (`alerts::DAILY`) as this pass saw them: each starts over with its
+/// day, and is then recorded from what its class's shared allowance
+/// has admitted today, unless that could not be read.
+async fn observe_daily(db: &D1Database, now: &str) -> worker::Result<Vec<D1PreparedStatement>> {
+    let uploads = db
+        .prepare(sql::SHARED_DAILY_UPLOADS)
+        .bind(&[now.into()])?
+        .all()
+        .await
+        .and_then(|rows| rows.results::<SharedUploads>())
+        .inspect_err(|err| console_error!("shared daily uploads read: {err}"))
+        .ok();
+    let mut statements = Vec::new();
+    for (kind, class) in alerts::DAILY {
+        statements.push(
+            db.prepare(sql::START_ALERT_DAY)
+                .bind(&[kind.as_str().into(), now.into()])?,
+        );
+        if let Some(uploads) = &uploads {
+            // A class with no row has admitted nothing today.
+            let firing = uploads
+                .iter()
+                .find(|row| row.quota_class == class)
+                .and_then(|row| {
+                    quota::shared_allowance_alert(
+                        class,
+                        &row.usage_date,
+                        non_negative(row.bytes),
+                        non_negative(row.uploads),
+                    )
+                });
+            statements.push(observe(db, now, kind, firing)?);
+        }
+    }
+    Ok(statements)
+}
+
+/// One row of `sql::SHARED_DAILY_UPLOADS`.
+#[derive(Deserialize)]
+struct SharedUploads {
+    quota_class: String,
+    usage_date: String,
+    bytes: i64,
+    uploads: i64,
 }
 
 /// One row of `sql::PIPELINE_HEALTH`.

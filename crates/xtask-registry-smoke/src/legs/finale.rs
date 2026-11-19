@@ -1,4 +1,4 @@
-//! The run's tail: the breaker cron leg, the alert mail leg, the admin
+//! The run's tail: the breaker cron leg, the alert mail legs, the admin
 //! cron endpoint, the strict zip-container profile, the governor's hard limits across two mid-run
 //! dev-server restarts, the admin governor endpoint, the real
 //! verification driver's pass over two fresh versions (`driver_pass`),
@@ -172,6 +172,7 @@ struct Fixtures {
 pub fn run(smoke: &mut Smoke, inputs: &mut FinaleInputs<'_>) -> Result<()> {
     breaker_cron(smoke, inputs)?;
     alert_mail(smoke)?;
+    allowance_alert(smoke)?;
     admin_cron(smoke)?;
     zip_profile(smoke, inputs)?;
     driver_pass(smoke, inputs)?;
@@ -233,8 +234,67 @@ fn alert_mail(smoke: &mut Smoke) -> Result<()> {
     Ok(())
 }
 
+/// The cron mails each class's shared daily upload allowance at its
+/// steps (`api/src/quota.rs`: 500 uploads for the default class, 1,000
+/// for the operator's), and starts a kind over with its day: a row
+/// firing since an earlier day is mailed as a first firing, and fires
+/// since this pass. The uploads added here are taken back and the
+/// alerts' rows removed, so the legs after this one find the allowances
+/// and the alerts as the run left them.
+fn allowance_alert(smoke: &mut Smoke) -> Result<()> {
+    step("the cron mails a shared daily allowance at its steps and starts it over with its day");
+    let add = |class: &str, uploads: u32| {
+        d1(&format!(
+            "INSERT INTO shared_daily_upload_usage (usage_date, quota_class, bytes, uploads) \
+             VALUES (date('now'), '{class}', 0, {uploads}) \
+             ON CONFLICT (usage_date, quota_class) DO UPDATE SET uploads = uploads + {uploads};"
+        ))
+    };
+    let mailed = |kind: &str, state: &str| -> Result<bool> {
+        let rows = crate::servers::d1_rows(&format!(
+            "SELECT 1 FROM alerts WHERE kind = '{kind}' AND attempts = 0 AND {state}"
+        ))?;
+        Ok(!rows.is_empty())
+    };
+    add("default", 250)?;
+    add("operator", 800)?;
+    smoke.check(BREAKER_CRON, &[200])?;
+    if !mailed(
+        "shared_uploads",
+        "level = 1 AND notified_level = 1 AND instr(summary, 'has reached 50% (') > 0 \
+         AND instr(summary, ' of 500 uploads, ') > 0",
+    )? {
+        bail!("the cron did not mail the default class's shared allowance at half");
+    }
+    if !mailed(
+        "operator_uploads",
+        "level = 2 AND notified_level = 2 AND instr(summary, 'has reached 80% (') > 0 \
+         AND instr(summary, ' of 1000 uploads, ') > 0",
+    )? {
+        bail!("the cron did not mail the operator class's shared allowance at four fifths");
+    }
+    d1("UPDATE alerts SET since = '2026-01-01T00:00:00.000Z' WHERE kind = 'shared_uploads';")?;
+    add("default", 250)?;
+    smoke.check(BREAKER_CRON, &[200])?;
+    if !mailed(
+        "shared_uploads",
+        "level = 3 AND notified_level = 3 AND since > '2026-01-02' \
+         AND instr(summary, 'is used up (') > 0",
+    )? {
+        bail!("the cron did not start the shared allowance's day over and mail its limit");
+    }
+    // Only a row every addition for its class went to holds that many.
+    d1(
+        "UPDATE shared_daily_upload_usage SET uploads = uploads - 500 \
+         WHERE quota_class = 'default' AND uploads >= 500; \
+         UPDATE shared_daily_upload_usage SET uploads = uploads - 800 \
+         WHERE quota_class = 'operator' AND uploads >= 800; \
+         DELETE FROM alerts WHERE kind IN ('shared_uploads', 'operator_uploads');",
+    )
+}
+
 /// The cron's state reads with the verify scope alone, and shows the
-/// pass `alert_mail` just ran: recent, no mail of its alerts failing,
+/// pass `allowance_alert` just ran: recent, no mail of its alerts failing,
 /// and the time of a mail the run's passes sent.
 fn admin_cron(smoke: &mut Smoke) -> Result<()> {
     step("the admin cron endpoint answers the pass that just ran, to the verify scope alone");

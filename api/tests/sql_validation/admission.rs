@@ -903,6 +903,45 @@ fn a_returning_operation_is_measured_against_its_own_rows() {
     }
 }
 
+/// The alert pass reads what each class's shared allowance has
+/// admitted on the UTC day of its own clock: the last millisecond of a
+/// day reads that day's rows, and the first of the next reads none of
+/// them.
+#[test]
+fn the_shared_uploads_read_is_of_the_samples_own_day() {
+    let conn = seeded();
+    conn.execute_batch(&format!(
+        r"
+        INSERT INTO shared_daily_upload_usage (usage_date, quota_class, bytes, uploads)
+          VALUES ('{DAY}', 'operator', 7, 1), ('2026-10-25', 'default', 99, 9);
+        "
+    ))
+    .expect("seed another class and another day");
+    let read = |now: &str| -> Vec<String> {
+        let mut statement = conn.prepare(sql::SHARED_DAILY_UPLOADS).expect("prepare");
+        let mut found: Vec<String> = statement
+            .query_map([now], |row| {
+                Ok(format!(
+                    "{} {} {} {}",
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?
+                ))
+            })
+            .expect("SHARED_DAILY_UPLOADS")
+            .collect::<Result<_, _>>()
+            .expect("a row");
+        found.sort();
+        found
+    };
+    assert_eq!(
+        read("2026-10-26T23:59:59.999Z"),
+        [format!("default {DAY} 30 3"), format!("operator {DAY} 7 1")]
+    );
+    assert_eq!(read("2026-10-27T00:00:00.000Z"), [""; 0]);
+}
+
 /// A day's allowances are that day's rows: an account refused at its
 /// limit in the last millisecond of a day is admitted in the first of
 /// the next with no sweep in between, and the sweep keeps today's and

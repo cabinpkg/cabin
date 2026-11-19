@@ -77,6 +77,86 @@ fn mailed(conn: &Connection, minutes: u32, observed: &[(Kind, u8)]) -> Vec<Strin
 
 const NONE: [&str; 0] = [];
 
+/// The start of a pass for a kind of one UTC day:
+/// `glue::cron::report_alerts` starts the kind's day before it records
+/// the kind.
+fn start_day(conn: &Connection, minutes: u32) {
+    conn.execute(
+        sql::START_ALERT_DAY,
+        (Kind::SharedUploads.as_str(), at(minutes)),
+    )
+    .expect("START_ALERT_DAY");
+}
+
+/// A kind of one UTC day starts over with its day. What the new day
+/// shows is claimed as a first firing even when the day before ended
+/// higher, and the day that ended is claimed no recovery; a mail it
+/// was still owed is dropped with its failed tries, and one accepted
+/// after its day ended makes no recovery owed. A pass that could not
+/// observe the kind starts its day all the same. Within a day the
+/// kind is as any other: a rise is claimed, a level that stays is not,
+/// and no day is long enough for a CRITICAL level's reminder. A kind
+/// that is not of one day is left as it is.
+#[test]
+fn a_kind_of_one_day_starts_over_with_its_day() {
+    let conn = migrated_connection();
+    let pass = |minutes, shared, publication| {
+        start_day(&conn, minutes);
+        mailed(
+            &conn,
+            minutes,
+            &[
+                (Kind::SharedUploads, shared),
+                (Kind::Publication, publication),
+            ],
+        )
+    };
+    // 10:00 and 23:45 of the first day.
+    assert_eq!(pass(600, 2, 2), ["publication 2 0", "shared_uploads 2 0"]);
+    assert_eq!(pass(1425, 2, 2), NONE);
+    // 00:00 of the second day, already at half; then 01:00, at the limit.
+    assert_eq!(pass(1440, 1, 2), ["shared_uploads 1 0"]);
+    assert_eq!(pass(1500, 3, 2), ["shared_uploads 3 1"]);
+    // 10:00, a day after the first mails: the other kind's reminder.
+    assert_eq!(pass(2040, 3, 2), ["publication 2 2"]);
+    assert_eq!(pass(2865, 3, 0), ["publication 0 2"]);
+    // 00:00 of the third day, whose usage the pass could not read.
+    start_day(&conn, 2880);
+    assert_eq!(mailed(&conn, 2880, &[(Kind::Publication, 0)]), NONE);
+    let state = "SELECT kind, level, notified_level, attempts, since FROM alerts ORDER BY kind";
+    let healthy = |kind: &str, since: u32| {
+        format!(
+            "Text(\"{kind}\") | Integer(0) | Integer(0) | Integer(0) | Text(\"{}\")",
+            at(since)
+        )
+    };
+    assert_eq!(
+        rows(&conn, state),
+        [
+            healthy("publication", 2865),
+            healthy("shared_uploads", 2880)
+        ]
+    );
+
+    // 23:45: half, and the mail is still on its way at 00:00 of the
+    // fourth day, which is quiet. It is accepted after that pass.
+    start_day(&conn, 4305);
+    let late = failed(&conn, 4305, &[(Kind::SharedUploads, 1)]);
+    assert_eq!(late, ["shared_uploads 1 0"]);
+    start_day(&conn, 4320);
+    assert_eq!(failed(&conn, 4320, &[(Kind::SharedUploads, 0)]), NONE);
+    deliver(&conn, 4305, &late);
+    start_day(&conn, 4335);
+    assert_eq!(failed(&conn, 4335, &[(Kind::SharedUploads, 0)]), NONE);
+    assert_eq!(
+        rows(&conn, state),
+        [
+            healthy("publication", 2865),
+            healthy("shared_uploads", 4320)
+        ]
+    );
+}
+
 /// The alert pass's state as a check from outside reads it at
 /// `minutes`: `checked_seconds mail_attempts`.
 fn pass_state(conn: &Connection, minutes: u32) -> String {
