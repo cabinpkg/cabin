@@ -48,6 +48,7 @@ groups!(
     admission,
     alerts,
     auth,
+    download_log,
     downloads,
     meta,
     notifications,
