@@ -83,15 +83,16 @@ export function visibleContent(html) {
     };
 }
 
-// The homepage's registry stats band is registry data end to end, so
-// it must ship `hidden` (home-stats.ts reveals it after a successful
-// fetch): without JS - or with the registry down - the visitor gets
-// the page without the band, never an empty strip. Every match must be
-// hidden, so a second, unhidden band cannot mask the first.
-export function statsBandShipsHidden(html) {
+// Registry statistics are registry data end to end, so each element
+// carrying `marker` (the homepage's band, a package page's downloads)
+// must ship `hidden` (a script reveals it after a successful fetch):
+// without JS - or with the registry down - the visitor gets the page
+// without it, never an empty strip. Every match must be hidden, so a
+// second, unhidden one cannot mask the first.
+export function shipsHidden(html, marker) {
     let found = null;
     const walk = (node) => {
-        if (attribute(node, "data-registry-stats") !== undefined) {
+        if (attribute(node, marker) !== undefined) {
             const hidden = attribute(node, "hidden") !== undefined;
             found = found === null ? hidden : found && hidden;
         }
@@ -137,7 +138,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
             "carries meaningful visible text without JavaScript",
         );
         home.expect(
-            statsBandShipsHidden(home.html) === true,
+            shipsHidden(home.html, "data-registry-stats") === true,
             "ships the registry stats band hidden (JS reveals it)",
         );
     }
@@ -238,6 +239,12 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
                     detail.content.mainText.includes("[dependencies]") &&
                         detail.content.mainText.includes(snippet),
                     "carries this package's install snippet in static text",
+                );
+                detail.expect(
+                    shipsHidden(detail.html, "data-downloads-total") === true &&
+                        shipsHidden(detail.html, "data-package-downloads") ===
+                            true,
+                    "ships the package's downloads hidden (JS reveals them)",
                 );
             }
         } else {

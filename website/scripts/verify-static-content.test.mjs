@@ -4,10 +4,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import {
-    statsBandShipsHidden,
-    visibleContent,
-} from "./verify-static-content.mjs";
+import { shipsHidden, visibleContent } from "./verify-static-content.mjs";
 
 test("visible text keeps prose and noscript, drops never-rendered subtrees", () => {
     const { text } = visibleContent(
@@ -88,33 +85,44 @@ test("links collect visible hrefs with their visible text", () => {
 
 test("the stats band must ship hidden - every instance of it", () => {
     assert.equal(
-        statsBandShipsHidden("<section data-registry-stats hidden></section>"),
+        shipsHidden(
+            "<section data-registry-stats hidden></section>",
+            "data-registry-stats",
+        ),
         true,
     );
     assert.equal(
-        statsBandShipsHidden("<section data-registry-stats></section>"),
+        shipsHidden(
+            "<section data-registry-stats></section>",
+            "data-registry-stats",
+        ),
         false,
     );
     // A later hidden band must not mask an earlier unhidden one (or
     // vice versa): one visible instance is a failure.
     assert.equal(
-        statsBandShipsHidden(
+        shipsHidden(
             "<section data-registry-stats></section>" +
                 "<section data-registry-stats hidden></section>",
+            "data-registry-stats",
         ),
         false,
     );
     assert.equal(
-        statsBandShipsHidden(
+        shipsHidden(
             "<section data-registry-stats hidden></section>" +
                 "<section data-registry-stats></section>",
+            "data-registry-stats",
         ),
         false,
     );
     // Absent counts as a failure at the call site (`=== true`): the
     // check pins the band's presence-and-hidden shape, not just the
     // attribute.
-    assert.equal(statsBandShipsHidden("<section></section>"), null);
+    assert.equal(
+        shipsHidden("<section></section>", "data-registry-stats"),
+        null,
+    );
 });
 
 // The 404 page's HTTP status comes from the host, not the HTML:
