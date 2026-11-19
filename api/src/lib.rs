@@ -15,6 +15,7 @@ pub mod catalog_refresh;
 pub mod checksum;
 pub mod claim;
 pub mod documents;
+pub mod download_log;
 pub mod error;
 pub mod governor;
 pub mod names;
