@@ -184,7 +184,12 @@ pub const EXPIRY_CRITICAL_MS: u64 = 48 * 3_600_000;
 /// it is within [`EXPIRY_CRITICAL_MS`] of the end of its
 /// [`READ_WINDOW_MS`], or past it.
 #[must_use]
-pub fn backlog_alert(now_ms: u64, unread: &[u64], errors: &[u64], cut: bool) -> Option<(u8, String)> {
+pub fn backlog_alert(
+    now_ms: u64,
+    unread: &[u64],
+    errors: &[u64],
+    cut: bool,
+) -> Option<(u8, String)> {
     let late = unread
         .iter()
         .filter(|&&uploaded| now_ms.saturating_sub(uploaded) > UNREAD_WARNING_MS)

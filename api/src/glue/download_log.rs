@@ -101,7 +101,10 @@ async fn try_count_downloads(env: &Env, db: &D1Database, origin: &str) -> worker
             console_error!("download-log pass: listing DOWNLOAD_LOGS: {err}");
             false
         });
-    let unread: Vec<u64> = unsettled.iter().map(|(uploaded_ms, ..)| *uploaded_ms).collect();
+    let unread: Vec<u64> = unsettled
+        .iter()
+        .map(|(uploaded_ms, ..)| *uploaded_ms)
+        .collect();
     let firing = download_log::backlog_alert(now_ms, &unread, &errors, !whole);
     let held = if whole {
         0
