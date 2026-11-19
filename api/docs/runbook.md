@@ -653,23 +653,25 @@ in-code defaults (`src/governor.rs`):
 | Var | Default | Pool (as snapshots name it) |
 | --- | --- | --- |
 | `GOVERNOR_R2_CLASS_A_PUBLISH_MONTH` | 200,000 | `a_publish` - publish-path puts |
-| `GOVERNOR_R2_CLASS_A_INFRA_MONTH` | 500,000 | `a_infra` - archive placement puts; document puts |
+| `GOVERNOR_R2_CLASS_A_INFRA_MONTH` | 500,000 | `a_infra` - archive placement puts; document puts; download-log lists |
 | `GOVERNOR_R2_CLASS_B_ORDINARY_MONTH` | 4,000,000 | `b_ordinary` - artifact cache misses |
 | `GOVERNOR_R2_CLASS_B_SOURCE_MONTH` | 500,000 | `b_source` - source-viewer ranged reads |
 | `GOVERNOR_R2_CLASS_B_VERIFIER_MONTH` | 500,000 | `b_verifier` - pending-artifact fetches |
 | `GOVERNOR_R2_CLASS_B_PUBLISH_MONTH` | 200,000 | `b_publish` - publish-path heads |
-| `GOVERNOR_R2_CLASS_B_INFRA_MONTH` | 700,000 | `b_infra` - the cron's object checks of expired reservations; archive placement's check and read; document checks |
+| `GOVERNOR_R2_CLASS_B_INFRA_MONTH` | 700,000 | `b_infra` - the cron's object checks of expired reservations; archive placement's check and read; document checks; download-log reads |
 
 The two infrastructure defaults cover a month of the cron (2,976
-invocations) with every pass at its ceiling: 142 class A operations an
+invocations) with every pass at its ceiling: 162 class A operations an
 invocation (20 placements, their 20 documents, the publish pass's 100
-documents, the catalog and the configuration) and 212 class B (those, a
-second for each placement, and 50 reservation checks). They are sized
+documents, the catalog, the configuration, and the download-log pass's
+20 lists) and 232 class B (the placements, documents, catalog and
+configuration, a second for each placement, 50 reservation checks, and
+the download-log pass's 20 reads). They are sized
 that way because yank has no quota: a member's yanks can hold the
 publish pass at its ceiling, and a limit that did not cover it would
 let them stop archive placement.
 
-An invocation at those ceilings also makes about 200 D1 queries (a
+An invocation at those ceilings also makes about 250 D1 queries (a
 batch counts as one). D1 allows an invocation 1,000 on Workers Paid and
 50 on the free plan, where a publish pass over more than a few dozen
 packages would fail before it completes a row and start over at the
@@ -1078,7 +1080,7 @@ filtered to `ClientRequestHost` equal to the archives' host, to the
 `registry-download-logs` bucket, as gzip NDJSON with
 `timestamp_format` `unixnano`, `max_upload_interval_seconds` 300,
 `max_upload_bytes` 5000000 and `max_upload_records` 10000 (the pass
-reads files of up to twice that, and keeps up with two files a
+reads files of up to twice that, and keeps up with a file a
 minute), and at least the fields `ClientRequestHost`,
 `ClientRequestMethod`, `ClientRequestSource`, `ClientRequestURI`,
 `ClientRequestUserAgent`, `EdgeResponseStatus` and
@@ -1099,8 +1101,8 @@ made the tables writes the cutoff, so a wipe starts the statistics
 over, and a pass that read a file against the previous cutoff adds
 nothing.
 
-**A pass** lists the bucket, at most 40 pages of 1,000 keys, and
-reads at most 30 files that have no row and were uploaded less than
+**A pass** lists the bucket, at most 20 pages of 1,000 keys, and
+reads at most 20 files that have no row and were uploaded less than
 14 days ago, the oldest first. The governor admits each list and each
 read (`a_infra`, `b_infra`). A refusal, or an R2 or D1 error, ends the
 pass (`download-log pass: ...`) without an error row: what it committed

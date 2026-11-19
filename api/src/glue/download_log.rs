@@ -37,13 +37,15 @@ use crate::sql;
 
 use super::{changed_rows, consume_one, iso8601_from_ms, now_iso8601, read_meta};
 
-/// Pages of a thousand keys a pass lists: fourteen days of two files a
-/// minute, ten times what the job writes when it sends a file each five
-/// minutes (`docs/runbook.md`, "Download statistics").
-const LIST_PAGES: usize = 40;
+/// Pages of a thousand keys a pass lists: fourteen days of a file a
+/// minute, five times what the job writes when it sends a file each five
+/// minutes (`docs/runbook.md`, "Download statistics"). This and
+/// [`FILES_PER_PASS`] are part of the infrastructure pools' sizing
+/// (`crate::governor::Limits`).
+const LIST_PAGES: usize = 20;
 
-/// Files a pass reads: two a minute between two passes.
-const FILES_PER_PASS: usize = 30;
+/// Files a pass reads: a file a minute between two passes.
+const FILES_PER_PASS: usize = 20;
 
 #[derive(Deserialize)]
 struct KeyRecord {
