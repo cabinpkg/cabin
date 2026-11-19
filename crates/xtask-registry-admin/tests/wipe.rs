@@ -28,6 +28,8 @@ const EMULATED: [(&str, bool); 6] = [
 /// wipe, and the one the fake account hands back once it is recreated.
 const OLD_ID: &str = "00000000-0000-0000-0000-000000000000";
 const NEW_ID: &str = "1234abcd-1234-abcd-1234-abcd1234abcd";
+/// The download statistics' cutoff the recreated database answers.
+const CUTOFF: &str = "2027-01-05T12:00:00.000Z";
 
 /// A scratch registry root plus a fake `node` that logs every call and
 /// answers the one `SELECT` the wipe makes with canned rows.  For the
@@ -82,6 +84,7 @@ case "$*" in
 echo "[{{\"name\":\"registry\",\"uuid\":\"$id\"}}]" ;;
 *"d1 create"*) touch "{created}" ;;
 *"SELECT value"*launched*) echo '[{{"results":{rows},"success":true}}]' ;;
+*"SELECT value"*downloads_cutoff*) echo '[{{"results":[{{"value":"{CUTOFF}"}}],"success":true}}]' ;;
 *) echo '[{{"results":[],"success":true}}]' ;;
 esac
 "#,
@@ -273,7 +276,9 @@ fn a_remote_wipe_sweeps_the_four_buckets_before_recreating_the_database() {
         .remote(&r2)
         .assert()
         .success()
-        .stdout(predicates::str::contains("wipe OK (0 object(s) deleted)"));
+        .stdout(predicates::str::contains(format!(
+            "wipe OK (0 object(s) deleted; downloads count from {CUTOFF})"
+        )));
     let account = "0123456789abcdef".repeat(2);
     assert_eq!(
         r2.requests(),
@@ -293,6 +298,7 @@ fn a_remote_wipe_sweeps_the_four_buckets_before_recreating_the_database() {
         " d1 create registry",
         " d1 list --json",
         " d1 migrations apply DB --remote",
+        "SELECT value FROM meta WHERE key = 'downloads_cutoff'",
         " deploy",
     ];
     assert_eq!(log.len(), expected.len(), "{log:?}");
