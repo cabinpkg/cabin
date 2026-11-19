@@ -96,10 +96,17 @@ use xtask_workflow_guard::migrations_pending;
 
 use crate::launch_guard::{self, Mode};
 use crate::r2::Buckets;
-use crate::{BUCKETS, declared_account_id, display, output, registry_root, status, step, wrangler};
+use crate::{
+    BUCKETS, declared_account_id, display, output, registry_root, results, status, step, wrangler,
+};
 
 /// The database this drops and recreates.
 const DATABASE: &str = "registry";
+
+/// Where the download statistics of the recreated database start: the
+/// cutoff its migration wrote (`api/docs/runbook.md`, "Download
+/// statistics").
+const CUTOFF: &str = "SELECT value FROM meta WHERE key = 'downloads_cutoff'";
 
 /// This module's own refusal text on stderr, exit 1.
 ///
@@ -238,6 +245,29 @@ fn remote() -> Result<()> {
         Show::Stdout,
     )?;
 
+    // The boundary a wipe run is checked by: no request that started
+    // before it is counted, however late its log arrives.
+    let answer = output(
+        wrangler(&[
+            "d1",
+            "execute",
+            "DB",
+            "--remote",
+            "--json",
+            "--command",
+            CUTOFF,
+        ])
+        .current_dir(&root),
+    )?;
+    let rows = results(&answer)?;
+    let Some(cutoff) = rows
+        .first()
+        .and_then(|row| row.get("value"))
+        .and_then(serde_json::Value::as_str)
+    else {
+        fail("the recreated database has no meta.downloads_cutoff");
+    };
+
     // The database now runs exactly the files' content, so the deploy
     // gate's stamp is refreshed here rather than by hand (the pre-launch
     // policy edits migrations in place, which is exactly the state the
@@ -249,7 +279,7 @@ fn remote() -> Result<()> {
     wrangler_run(&["deploy"], Show::Stdout)?;
 
     print!(
-        r#"wipe OK ({deleted} object(s) deleted)
+        r#"wipe OK ({deleted} object(s) deleted; downloads count from {cutoff})
 
 Follow-ups, IN THIS ORDER (api/docs/runbook.md, "Post-wipe re-provisioning"):
   1. commit the wrangler.jsonc database-id change and the refreshed

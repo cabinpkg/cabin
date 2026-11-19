@@ -24,7 +24,7 @@ use crate::{display, key_value, output, registry_dir, repo_root, results, step, 
 const SERVICE_STATE: &str = "
   SELECT key, value FROM meta WHERE key IN
     ('service_mode', 'service_mode_reason', 'launched', 'verifier_seen_at',
-     'alerts_checked_at', 'notifications_sent_at')
+     'alerts_checked_at', 'notifications_sent_at', 'downloads_cutoff')
   UNION ALL
   SELECT 'total_stored_bytes', COALESCE(SUM(stored_bytes), 0) FROM users
   ORDER BY key";

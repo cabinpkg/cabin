@@ -392,7 +392,15 @@ smoke test). What it does, in order:
    (`wrangler d1 migrations apply DB --remote`) and refreshes the
    `migrations-applied` deploy-gate stamp - the recreated database now
    runs exactly the files' content. Commit the stamp with the
-   `wrangler.jsonc` change.
+   `wrangler.jsonc` change. Before the stamp it reads back
+   `meta.downloads_cutoff`, which the migration wrote, and its `wipe OK`
+   line names it (`downloads count from ...`): no request that started
+   before it is counted ("Download statistics"), however late its log
+   arrives. The wipe does not purge the archives host's edge cache, so
+   a request after it that the cache answers with a pre-wipe archive
+   counts if that version exists again when its log is read. A
+   database without the cutoff stops the run before the deploy: fix the
+   migrations and re-run the wipe.
 5. Redeploys (`wrangler deploy`) so the new `database_id` is baked into
    the Worker's bindings. A colo's edge cache can keep serving a
    pre-wipe package document for up to its 60 s TTL.
@@ -410,9 +418,11 @@ cache start empty.
 
 A remote wipe that stops during the sweeps (step 2) has not touched the
 database: fix the cause and re-run it. If one is interrupted between the
-database delete and the end, the guard cannot read the half-provisioned
-database and refuses the re-run; finish by hand with the remaining
-steps ("First-time provisioning" has the same commands).
+database delete and the migrations, the guard cannot read the
+half-provisioned database and refuses the re-run; finish by hand with
+the remaining steps ("First-time provisioning" has the same commands).
+Once the migrations have run, the guard reads the new database's
+`meta.launched` and a re-run wipes again from the start.
 
 Tokens and browser sessions live in the dropped database, so a wipe
 revokes everything; users re-authenticate afterward
@@ -1099,7 +1109,8 @@ those downloads in `unknown_version`; the other records that are not
 downloads are counted by reason in `excluded`. The migration that
 made the tables writes the cutoff, so a wipe starts the statistics
 over, and a pass that read a file against the previous cutoff adds
-nothing.
+nothing. `cargo registry-diagnose` prints it, and a remote wipe names
+the new one ("Wipe procedure").
 
 **A pass** lists the bucket, at most 20 pages of 1,000 keys, and
 reads at most 20 files that have no row and were uploaded less than
