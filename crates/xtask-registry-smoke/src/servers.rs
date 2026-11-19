@@ -301,6 +301,7 @@ fn seed_sql(hash: &str, verify_hash: &str, noverify_hash: &str, outsider_hash: &
     -- The daily upload allowances an earlier run today spent on them.
     DELETE FROM user_daily_upload_usage;
     DELETE FROM shared_daily_upload_usage;
+    DELETE FROM version_daily_downloads WHERE scope = 'smoke';
     DELETE FROM versions WHERE scope = 'smoke';
     DELETE FROM publication_jobs WHERE scope = 'smoke';
     DELETE FROM packages WHERE scope = 'smoke';

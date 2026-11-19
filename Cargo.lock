@@ -3324,6 +3324,7 @@ dependencies = [
  "cabinpkg-core",
  "cabinpkg-env",
  "crc32fast",
+ "flate2",
  "libc",
  "serde_json",
  "sha2",

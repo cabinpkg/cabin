@@ -653,23 +653,25 @@ in-code defaults (`src/governor.rs`):
 | Var | Default | Pool (as snapshots name it) |
 | --- | --- | --- |
 | `GOVERNOR_R2_CLASS_A_PUBLISH_MONTH` | 200,000 | `a_publish` - publish-path puts |
-| `GOVERNOR_R2_CLASS_A_INFRA_MONTH` | 500,000 | `a_infra` - archive placement puts; document puts |
+| `GOVERNOR_R2_CLASS_A_INFRA_MONTH` | 500,000 | `a_infra` - archive placement puts; document puts; download-log lists |
 | `GOVERNOR_R2_CLASS_B_ORDINARY_MONTH` | 4,000,000 | `b_ordinary` - artifact cache misses |
 | `GOVERNOR_R2_CLASS_B_SOURCE_MONTH` | 500,000 | `b_source` - source-viewer ranged reads |
 | `GOVERNOR_R2_CLASS_B_VERIFIER_MONTH` | 500,000 | `b_verifier` - pending-artifact fetches |
 | `GOVERNOR_R2_CLASS_B_PUBLISH_MONTH` | 200,000 | `b_publish` - publish-path heads |
-| `GOVERNOR_R2_CLASS_B_INFRA_MONTH` | 700,000 | `b_infra` - the cron's object checks of expired reservations; archive placement's check and read; document checks |
+| `GOVERNOR_R2_CLASS_B_INFRA_MONTH` | 700,000 | `b_infra` - the cron's object checks of expired reservations; archive placement's check and read; document checks; download-log reads |
 
 The two infrastructure defaults cover a month of the cron (2,976
-invocations) with every pass at its ceiling: 142 class A operations an
+invocations) with every pass at its ceiling: 162 class A operations an
 invocation (20 placements, their 20 documents, the publish pass's 100
-documents, the catalog and the configuration) and 212 class B (those, a
-second for each placement, and 50 reservation checks). They are sized
+documents, the catalog, the configuration, and the download-log pass's
+20 lists) and 232 class B (the placements, documents, catalog and
+configuration, a second for each placement, 50 reservation checks, and
+the download-log pass's 20 reads). They are sized
 that way because yank has no quota: a member's yanks can hold the
 publish pass at its ceiling, and a limit that did not cover it would
 let them stop archive placement.
 
-An invocation at those ceilings also makes about 200 D1 queries (a
+An invocation at those ceilings also makes about 250 D1 queries (a
 batch counts as one). D1 allows an invocation 1,000 on Workers Paid and
 50 on the free plan, where a publish pass over more than a few dozen
 packages would fail before it completes a row and start over at the
@@ -1060,7 +1062,69 @@ copied it and before that pass recorded it - a second pass found the
 upload expired in between; a later publication of the same bytes is
 served from that object. INDEX holds the publish pass's documents,
 which nothing reads yet: the read plane composes its answers from D1.
-Nothing writes DOWNLOAD_LOGS.
+DOWNLOAD_LOGS holds the request logs ("Download statistics").
+
+## Download statistics
+
+A Logpush job writes the zone's HTTP request logs to DOWNLOAD_LOGS,
+and each cron pass counts the archive downloads in the files it has
+not read (`src/glue/download_log.rs`, `src/download_log.rs`): a file's
+downloads are added to `versions.downloads` and to
+`version_daily_downloads`, which keeps the latest 90 UTC days, in one
+D1 batch with the file's row in `processed_log_files`, kept 30 days.
+The pass runs once `ARCHIVES_ORIGIN` is set, and counts the requests
+on its host.
+
+**The job.** One job, unsampled, on the `http_requests` dataset,
+filtered to `ClientRequestHost` equal to the archives' host, to the
+`registry-download-logs` bucket, as gzip NDJSON with
+`timestamp_format` `unixnano`, `max_upload_interval_seconds` 300,
+`max_upload_bytes` 5000000 and `max_upload_records` 10000 (the pass
+reads files of up to twice that, and keeps up with a file a
+minute), and at least the fields `ClientRequestHost`,
+`ClientRequestMethod`, `ClientRequestSource`, `ClientRequestURI`,
+`ClientRequestUserAgent`, `EdgeResponseStatus` and
+`EdgeStartTimestamp`. A record without one of them fails its file. A
+second job writing the same requests counts them twice. The job never
+writes a key twice: a key is a file, and a key that has a row is not
+read again.
+
+**What counts.** A `GET` from a visitor (`ClientRequestSource`
+`eyeball`, so not the Worker's own fetch) of an archive's canonical
+path on the archives' host, with no query, answered `200` to a
+`User-Agent` starting `cabin/`, that started at or after
+`meta.downloads_cutoff`. A cache hit and a miss count alike. A
+version with no row counts for nothing, and the file's row counts
+those downloads in `unknown_version`; the other records that are not
+downloads are counted by reason in `excluded`. The migration that
+made the tables writes the cutoff, so a wipe starts the statistics
+over, and a pass that read a file against the previous cutoff adds
+nothing.
+
+**A pass** lists the bucket, at most 20 pages of 1,000 keys, and
+reads at most 20 files that have no row and were uploaded less than
+14 days ago, the oldest first. The governor admits each list and each
+read (`a_infra`, `b_infra`). A refusal, or an R2 or D1 error, ends the
+pass (`download-log pass: ...`) without an error row: what it committed
+stays, and the next pass reads every file that still has no row.
+
+**A file that cannot be counted** - not a single gzip stream, cut
+short, over 10 MB compressed or decompressed (as its gzip trailer
+states, or as it decompresses), over 20,000 records, or with a record
+of another shape - gets an error row that names the cause, and
+`download-log pass: <key> cannot be counted: <cause>`; the pass goes
+on to the next file and never reads it again. Once the cause is fixed,
+and while the object is younger than 14 days, delete its row and the
+next pass counts it once:
+
+```sh
+node_modules/.bin/wrangler d1 execute DB --remote --command \
+  "DELETE FROM processed_log_files WHERE key = '<key>' AND status = 'error'"
+```
+
+A job that stops delivering looks like a registry nobody downloads
+from: the pass cannot tell them apart, so watch the job's own health
+(Logpush health notifications).
 
 ## Verification pipeline
 
