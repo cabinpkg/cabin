@@ -140,4 +140,32 @@ statements! {
         "UPDATE notifications SET failure = ?2, \
            failed_at = COALESCE(failed_at, CASE WHEN ?3 THEN ?4 END) \
          WHERE id = ?1";
+
+    /// What a check from outside the cron reads of the delivery pass,
+    /// as of `?1`, over the rows [`CLAIM_NOTIFICATION`] may still
+    /// claim: neither sent nor given up, their recipient has an
+    /// address, and no open publication job holds them. A row is due
+    /// from its creation, and after its `n`th claim from `?2` minutes
+    /// doubled `n` times past that claim. `waiting_seconds` is how
+    /// long the row due longest has been due: 0 when none is due yet,
+    /// NULL when there is no such row. `attempts` is the most claims
+    /// any of them has had. `sent_seconds` is the time since a pass
+    /// last recorded a mail as sent, which it writes under the `meta`
+    /// key `?3`: NULL when none has.
+    NOTIFICATION_DELIVERY_STATE =
+        "SELECT MAX(0, unixepoch(?1) - unixepoch(MIN( \
+                  CASE WHEN n.attempted_at IS NULL THEN n.created_at \
+                       ELSE strftime('%Y-%m-%dT%H:%M:%fZ', n.attempted_at, \
+                                     '+' || (?2 << n.attempts) || ' minutes') END))) \
+                  AS waiting_seconds, \
+                COALESCE(MAX(n.attempts), 0) AS attempts, \
+                (SELECT unixepoch(?1) - unixepoch(value) FROM meta WHERE key = ?3) \
+                  AS sent_seconds \
+         FROM notifications n INDEXED BY notifications_unsettled \
+         JOIN users u ON u.id = n.recipient \
+         WHERE n.sent_at IS NULL AND n.failed_at IS NULL \
+           AND u.notification_email IS NOT NULL \
+           AND NOT EXISTS (SELECT 1 FROM publication_jobs j \
+                           WHERE j.generation = n.detail ->> '$.generation' \
+                           AND j.completed_at IS NULL)";
 }

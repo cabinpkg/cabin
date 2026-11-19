@@ -2,7 +2,9 @@
 //! an event owes, and which row a cron pass claims next, claim after
 //! claim.
 
-use cabin_api_worker::notifications::{ATTEMPTS, BACKOFF_MINUTES, account_created, mail};
+use cabin_api_worker::notifications::{
+    ATTEMPTS, BACKOFF_MINUTES, SENT_META_KEY, account_created, mail,
+};
 use cabin_api_worker::quota::{SCOPE_GRANT_MAILS_PER_DAY, SCOPE_UNYANK_MAILS_PER_DAY};
 use cabin_api_worker::sql;
 use rusqlite::Connection;
@@ -105,6 +107,25 @@ fn row_of(conn: &Connection, user: i64) -> f64 {
 }
 
 const NONE: [&str; 0] = [];
+
+/// The delivery pass's state as a check from outside reads it at
+/// `minutes`: `waiting_seconds attempts sent_seconds`. D1 binds every
+/// number as a REAL.
+fn delivery_state(conn: &Connection, minutes: u32) -> String {
+    conn.query_row(
+        sql::NOTIFICATION_DELIVERY_STATE,
+        (at(minutes), f64::from(BACKOFF_MINUTES), SENT_META_KEY),
+        |row| {
+            Ok(format!(
+                "{:?} {} {:?}",
+                row.get::<_, Option<i64>>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, Option<i64>>(2)?
+            ))
+        },
+    )
+    .expect("NOTIFICATION_DELIVERY_STATE")
+}
 
 fn text(value: &str) -> Value {
     Value::Text(value.to_owned())
@@ -599,6 +620,65 @@ fn a_publication_mail_waits_for_its_change_to_be_published() {
         ["Integer(2)", "Integer(3)"]
     );
     assert_eq!(claim(&conn, 15), ["2 owner@example.com"]);
+}
+
+/// A check from outside reads how long a mail has been due to a pass,
+/// the most tries any has had, and how long ago one was sent. Only the
+/// rows a pass may still claim count: not one a publication job holds,
+/// one whose recipient has no address, one sent, or one given up. A
+/// row that waits out a failed try is not due until the wait is over.
+#[test]
+fn the_delivery_state_is_of_the_mails_a_pass_may_still_send() {
+    let conn = migrated_connection();
+    assert_eq!(delivery_state(&conn, 0), "None 0 None");
+
+    seed_scope_collision(&conn);
+    set_address(&conn, 2, Some("owner@example.com"));
+    verify_beta(&conn);
+    assert_eq!(place_beta(&conn, 0), [1; 5]);
+    assert_eq!(delivery_state(&conn, 60), "None 0 None", "a held row");
+    conn.execute(
+        sql::COMPLETE_PUBLICATION_JOBS,
+        (at(15), "beta", "pkg", 1.0, at(0)),
+    )
+    .expect("COMPLETE_PUBLICATION_JOBS");
+    assert_eq!(delivery_state(&conn, 60), "Some(3600) 0 None");
+
+    // A failed try: the row is due again 30 minutes after it.
+    assert_eq!(claim(&conn, 60), ["2 owner@example.com"]);
+    fail(&conn, 2, 60, "E_INTERNAL_SERVER_ERROR", false);
+    assert_eq!(delivery_state(&conn, 75), "Some(0) 1 None");
+    create_account(&conn, "480938", "hubot");
+    assert_eq!(delivery_state(&conn, 100), "Some(600) 1 None", "no address");
+    // Of two owed rows: the one due longest, and the most tries.
+    let mona = addressed_account(&conn, "424242", "mona");
+    assert_eq!(delivery_state(&conn, 100), "Some(6000) 1 None");
+
+    // A sent mail, recorded as the pass records it: the row, and the
+    // time under the pass's key.
+    assert_eq!(claim(&conn, 100), ["2 owner@example.com"]);
+    conn.execute(
+        sql::MARK_NOTIFICATION_SENT,
+        (row_of(&conn, 2), at(100), "message"),
+    )
+    .expect("MARK_NOTIFICATION_SENT");
+    conn.execute(sql::UPSERT_META, (SENT_META_KEY, at(100)))
+        .expect("UPSERT_META");
+    assert_eq!(delivery_state(&conn, 130), "Some(7800) 0 Some(1800)");
+    assert_eq!(claim(&conn, 130), [format!("{mona} mona@example.com")]);
+    fail(&conn, mona, 130, "E_RECIPIENT_SUPPRESSED", true);
+    assert_eq!(delivery_state(&conn, 130), "None 0 Some(1800)", "given up");
+
+    // The wait after a third try is the first's doubled twice: two
+    // hours.
+    let octocat = addressed_account(&conn, "583231", "octocat");
+    conn.execute(
+        "UPDATE notifications SET attempts = 3, attempted_at = ?1 WHERE recipient = ?2",
+        (at(140), octocat),
+    )
+    .expect("a third try");
+    assert_eq!(delivery_state(&conn, 260), "Some(0) 3 Some(9600)");
+    assert_eq!(delivery_state(&conn, 261), "Some(60) 3 Some(9660)");
 }
 
 /// A yank that changes the flag owes the account that made it one

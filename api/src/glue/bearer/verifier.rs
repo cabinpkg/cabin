@@ -1,18 +1,19 @@
-//! The verifier's surfaces (`verify` scope): the admin work lists and
-//! the verdict endpoint's OIDC authentication and transaction. The
-//! lifecycle rules live in `crate::verify`.
+//! The verifier's surfaces (`verify` scope): the admin work lists,
+//! the cron's state its run checks, and the verdict endpoint's OIDC
+//! authentication and transaction. The lifecycle rules live in
+//! `crate::verify`.
 
 use serde::Deserialize;
 use worker::{D1Database, Env, Request, Response, console_error, console_log};
 
 use crate::auth::{self, AuthContext};
 use crate::error;
-use crate::glue::publication::place_archives;
+use crate::glue::publication::{place_archives, result};
 use crate::glue::{
     MAX_MUTATION_BODY_BYTES, bounded_body, changed_rows, error_response, has_verify_scope, js_int,
     json_response, json_response_with_status, now_epoch_ms, now_iso8601,
 };
-use crate::{sql, trustpub, verify};
+use crate::{alerts, notifications, sql, trustpub, verify};
 
 use super::verifier_pins;
 
@@ -111,6 +112,64 @@ pub(super) async fn admin_packages_response(
         })
         .collect();
     json_response(&verify::packages_json(&packages))
+}
+
+#[derive(Deserialize)]
+struct AlertPassRecord {
+    checked_seconds: Option<i64>,
+    mail_attempts: i64,
+}
+
+#[derive(Deserialize)]
+struct DeliveryRecord {
+    waiting_seconds: Option<i64>,
+    attempts: i64,
+    sent_seconds: Option<i64>,
+}
+
+/// `GET /api/v1/admin/cron` (`verify` scope): what the cron's alert
+/// and delivery passes last recorded (`docs/runbook.md`, "Alerts"),
+/// for the check that runs outside the cron and the mail it sends.
+/// It answers ages and counts as D1 holds them and judges none of
+/// them; it names no account and no address, and sends nothing. Not
+/// budget-gated, like the listings: the check must read a registry
+/// whose writes are blocked.
+pub(super) async fn admin_cron_response(
+    db: &D1Database,
+    auth: &AuthContext,
+) -> worker::Result<Response> {
+    if !has_verify_scope(auth) {
+        return error_response(403, error::VERIFY_SCOPE_REQUIRED);
+    }
+    let now = now_iso8601();
+    let results = db
+        .batch(vec![
+            db.prepare(sql::ALERT_PASS_STATE)
+                .bind(&[now.as_str().into(), alerts::PASS_META_KEY.into()])?,
+            db.prepare(sql::NOTIFICATION_DELIVERY_STATE).bind(&[
+                now.as_str().into(),
+                notifications::BACKOFF_MINUTES.into(),
+                notifications::SENT_META_KEY.into(),
+            ])?,
+        ])
+        .await?;
+    let pass: Option<AlertPassRecord> = result(&results, 0)?.results()?.into_iter().next();
+    let delivery: Option<DeliveryRecord> = result(&results, 1)?.results()?.into_iter().next();
+    let (Some(pass), Some(delivery)) = (pass, delivery) else {
+        return Err(worker::Error::RustError(
+            "the cron state read answered no row".to_owned(),
+        ));
+    };
+    json_response(
+        &serde_json::json!({
+            "alerts_checked_seconds": pass.checked_seconds,
+            "alert_mail_attempts": pass.mail_attempts,
+            "notification_waiting_seconds": delivery.waiting_seconds,
+            "notification_attempts": delivery.attempts,
+            "notification_sent_seconds": delivery.sent_seconds,
+        })
+        .to_string(),
+    )
 }
 
 #[derive(Deserialize)]

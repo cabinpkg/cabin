@@ -3,7 +3,8 @@
 //! themselves: [`package`] (publish, yank, and the publish write
 //! phase), [`tokens`] (the trusted-publishing exchange, the session
 //! mint, self-revocation), [`verifier`] (the verifier's work lists and
-//! verdict), and [`governor`] (the operator's ledger surface).
+//! verdict, and the cron's state it checks), and [`governor`] (the
+//! operator's ledger surface).
 
 mod governor;
 mod package;
@@ -25,7 +26,10 @@ use super::{
 use governor::admin_governor_usage_response;
 use package::{publish_response, yank_response};
 use tokens::{self_revoke_response, session_mint_response, trustpub_exchange_response};
-use verifier::{admin_packages_response, admin_versions_response, verdict_authn, verdict_response};
+use verifier::{
+    admin_cron_response, admin_packages_response, admin_versions_response, verdict_authn,
+    verdict_response,
+};
 
 /// The website origin: the OAuth plane (`/api/auth/login`,
 /// `/api/auth/callback`, and the claim flow's
@@ -113,12 +117,14 @@ pub(super) async fn handle_website(
     }
 
     let response = match req.method() {
-        // The admin listings and the governor snapshot are the only API
-        // routes read with GET; anything else is an authenticated 404.
+        // The admin listings, the governor snapshot and the cron's
+        // state are the only API routes read with GET; anything else is
+        // an authenticated 404.
         Method::Get => match match_api_route(path) {
             Some(ApiRoute::AdminVersions) => admin_versions_response(req, &db, &auth).await?,
             Some(ApiRoute::AdminPackages) => admin_packages_response(&db, &auth).await?,
             Some(ApiRoute::AdminGovernor) => admin_governor_usage_response(env, &auth).await?,
+            Some(ApiRoute::AdminCron) => admin_cron_response(&db, &auth).await?,
             _ => error_response(404, error::NOT_FOUND)?,
         },
         Method::Put => match match_api_route(path) {

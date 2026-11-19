@@ -1,5 +1,5 @@
-//! The run's tail: the breaker cron leg, the alert mail leg, the strict
-//! zip-container profile, the governor's hard limits across two mid-run
+//! The run's tail: the breaker cron leg, the alert mail leg, the admin
+//! cron endpoint, the strict zip-container profile, the governor's hard limits across two mid-run
 //! dev-server restarts, the admin governor endpoint, the real
 //! verification driver's pass over two fresh versions (`driver_pass`),
 //! the bounded-concurrency leg, and the admission leg, after which the
@@ -39,6 +39,32 @@ pub(crate) const BREAKER_CRON: &str = "/__scheduled?cron=*/15+*+*+*+*";
 
 const PENDING_LISTING: &str = "/api/v1/admin/versions?status=pending";
 const GOVERNOR: &str = "/api/v1/admin/governor";
+const CRON_STATE: &str = "/api/v1/admin/cron";
+
+/// The line a driver pass prints when the cron's state is in order.
+const CRON_IN_ORDER: &str = "cron: the alert pass is recent and no mail is stuck";
+
+/// Every kind of cron trouble at once, for the driver to name: a pass
+/// that last recorded a run long ago, an alert whose mail keeps
+/// failing, and an account's mail that four tries have not sent and
+/// that has been due since, with no mail sent in that time. No cron
+/// pass runs while they stand.
+const CRON_TROUBLE: &str = "
+  UPDATE meta SET value = '2026-01-01T00:00:00.000Z'
+    WHERE key IN ('alerts_checked_at', 'notifications_sent_at');
+  UPDATE alerts SET attempts = 4 WHERE kind = 'service_mode';
+  INSERT INTO notifications (kind, event, recipient, detail, created_at, attempts, attempted_at)
+    SELECT 'account_created', '/!cron', id, '{}', '2026-01-01T00:00:00.000Z', 4,
+           '2026-01-01T00:00:00.000Z'
+    FROM users WHERE notification_email IS NOT NULL LIMIT 1;";
+
+/// Undoes [`CRON_TROUBLE`]: the passes are recent again, as the cron's
+/// clock writes them.
+const CRON_TROUBLE_OVER: &str = "
+  UPDATE meta SET value = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    WHERE key IN ('alerts_checked_at', 'notifications_sent_at');
+  UPDATE alerts SET attempts = 0 WHERE kind = 'service_mode';
+  DELETE FROM notifications WHERE event = '/!cron';";
 
 /// The publish burst (bucket size 5) reset before each leg that
 /// publishes, so a rate limit can never stand in for the refusal a leg
@@ -146,6 +172,7 @@ struct Fixtures {
 pub fn run(smoke: &mut Smoke, inputs: &mut FinaleInputs<'_>) -> Result<()> {
     breaker_cron(smoke, inputs)?;
     alert_mail(smoke)?;
+    admin_cron(smoke)?;
     zip_profile(smoke, inputs)?;
     driver_pass(smoke, inputs)?;
     let fixtures = governor_fixtures(smoke, inputs)?;
@@ -203,6 +230,28 @@ fn alert_mail(smoke: &mut Smoke) -> Result<()> {
     if !mailed("level = 0 AND notified_level = 0")? {
         bail!("the cron did not mail the service mode's recovery");
     }
+    Ok(())
+}
+
+/// The cron's state reads with the verify scope alone, and shows the
+/// pass `alert_mail` just ran: recent, no mail of its alerts failing,
+/// and the time of a mail the run's passes sent.
+fn admin_cron(smoke: &mut Smoke) -> Result<()> {
+    step("the admin cron endpoint answers the pass that just ran, to the verify scope alone");
+    smoke.as_ci_publisher();
+    smoke.wcheck(CRON_STATE, &[403])?;
+    smoke.expect_body("verify scope")?;
+    smoke.as_verifier();
+    smoke.wcheck(CRON_STATE, &[200])?;
+    let state: Value = serde_json::from_slice(&smoke.body).context("parse the cron's state")?;
+    let read = |key| state.get(key).and_then(Value::as_i64);
+    let in_order = read("alerts_checked_seconds").is_some_and(|seconds| (0..60).contains(&seconds))
+        && read("alert_mail_attempts") == Some(0)
+        && read("notification_sent_seconds").is_some_and(|seconds| seconds >= 0);
+    if !in_order {
+        bail!("the cron's state is not that of the pass that just ran: {state}");
+    }
+    smoke.as_publisher();
     Ok(())
 }
 
@@ -313,10 +362,22 @@ fn driver_pass(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
         bail!("an operational failure changed a verdict");
     }
 
-    step("the verification driver verifies the clean repack and rejects the traversal");
-    let (passed, _) = spawn_driver(smoke, inputs.verifier_bin)?;
-    if !passed {
-        bail!("the verification driver failed its pass");
+    step(
+        "the verification driver verifies the clean repack and rejects the traversal, and fails \
+         its pass on a cron that stopped and mail that is stuck",
+    );
+    d1(CRON_TROUBLE)?;
+    let (passed, output) = spawn_driver(smoke, inputs.verifier_bin)?;
+    d1(CRON_TROUBLE_OVER)?;
+    for trouble in [
+        "cron: the alert pass last recorded a run ",
+        "cron: an alert's mail has failed 4 passes running",
+        "cron: a notification has waited ",
+        "cron: a notification is unsent after 4 tries",
+    ] {
+        if passed || !output.contains(trouble) {
+            bail!("the driver did not fail its pass on: {trouble}");
+        }
     }
     let after = pending(smoke)?;
     if ours.iter().any(|version| after.contains(version)) {
@@ -339,7 +400,14 @@ fn driver_pass(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
     smoke.check(
         &artifact_route(inputs, DRIVER_REJECTED_VERSION, &evil),
         &[404],
-    )
+    )?;
+
+    step("the verification driver passes once the cron is in order");
+    let (passed, output) = spawn_driver(smoke, inputs.verifier_bin)?;
+    if !passed || !output.contains(CRON_IN_ORDER) {
+        bail!("the verification driver failed its pass, or did not check the cron");
+    }
+    Ok(())
 }
 
 /// `name@version` of every pending version, sorted.

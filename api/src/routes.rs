@@ -123,6 +123,10 @@ pub enum ApiRoute<'a> {
     /// `GET /api/v1/admin/governor`: the governor's usage snapshot for
     /// the operator (`docs/runbook.md`, "The cost governor").
     AdminGovernor,
+    /// `GET /api/v1/admin/cron`: what the cron's alert and delivery
+    /// passes last recorded, for the check that runs outside it
+    /// (`docs/runbook.md`, "Alerts").
+    AdminCron,
     /// [`TRUSTPUB_TOKENS_PATH`]: `PUT` exchanges a GitHub Actions OIDC
     /// JWT for a short-lived `trustpub` token (a Bearer-plane route
     /// exempt from token auth - the JWT in the body is the
@@ -151,7 +155,8 @@ pub const SESSION_TOKENS_PATH: &str = "/api/v1/sessions/tokens";
 /// trusted-publishing [`TRUSTPUB_TOKENS_PATH`], the login-session
 /// [`SESSION_TOKENS_PATH`], and the admin
 /// plane's `/api/v1/admin/versions[/<scope>/<name>/<version>]`,
-/// `/api/v1/admin/packages`, and `/api/v1/admin/governor`.
+/// `/api/v1/admin/packages`, `/api/v1/admin/governor`, and
+/// `/api/v1/admin/cron`.
 pub fn match_api_route(path: &str) -> Option<ApiRoute<'_>> {
     if path == TRUSTPUB_TOKENS_PATH {
         return Some(ApiRoute::TrustPubTokens);
@@ -164,6 +169,9 @@ pub fn match_api_route(path: &str) -> Option<ApiRoute<'_>> {
     }
     if path == "/api/v1/admin/governor" {
         return Some(ApiRoute::AdminGovernor);
+    }
+    if path == "/api/v1/admin/cron" {
+        return Some(ApiRoute::AdminCron);
     }
     if let Some(rest) = path.strip_prefix("/api/v1/admin/versions") {
         if rest.is_empty() {
@@ -959,7 +967,12 @@ mod tests {
             match_api_route("/api/v1/admin/governor"),
             Some(ApiRoute::AdminGovernor)
         );
+        assert_eq!(
+            match_api_route("/api/v1/admin/cron"),
+            Some(ApiRoute::AdminCron)
+        );
         // Exact match only: no subtree grows under it by accident.
+        assert_eq!(match_api_route("/api/v1/admin/cron/"), None);
         assert_eq!(match_api_route("/api/v1/admin/governor/"), None);
         assert_eq!(match_api_route("/api/v1/admin/governor/usage"), None);
     }
