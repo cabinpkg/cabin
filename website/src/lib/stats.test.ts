@@ -1,10 +1,11 @@
 // node:test suite for the stats client (`npm test`). The homepage's
-// stats band is an optional enhancement: every failure mode must
-// settle to null so the caller renders nothing, never partial numbers.
+// stats band and a package page's downloads are optional enhancements:
+// every failure mode must settle to null so the caller renders
+// nothing, never partial numbers.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { FetchLike } from "./account.ts";
-import { getRegistryStats } from "./stats.ts";
+import { getPackageDownloads, getRegistryStats } from "./stats.ts";
 
 function statsFetch(response: Response | Error): {
     fetch: FetchLike;
@@ -61,5 +62,67 @@ test("every failure mode settles to null", async () => {
     for (const [label, response] of failures) {
         const { fetch } = statsFetch(response);
         assert.equal(await getRegistryStats(fetch), null, label);
+    }
+});
+
+test("a package's downloads come from its stats endpoint", async () => {
+    const body =
+        '{"downloads":12,"days":[{"day":"2026-11-18","downloads":0},{"day":"2026-11-19","downloads":3}]}';
+    const { fetch, calls } = statsFetch(json(200, body));
+    assert.deepEqual(await getPackageDownloads("fmtlib/fmt", fetch), {
+        downloads: 12,
+        days: [
+            { day: "2026-11-18", downloads: 0 },
+            { day: "2026-11-19", downloads: 3 },
+        ],
+    });
+    assert.deepEqual(calls, ["/api/v1/stats/packages/fmtlib/fmt"]);
+});
+
+test("every failure of a package's downloads settles to null", async () => {
+    const failures: Array<[string, Response | Error]> = [
+        ["registry unreachable", new TypeError("fetch failed")],
+        ["non-2xx status", json(404, '{"downloads":1,"days":[]}')],
+        ["body is not JSON", json(200, "<!doctype html>")],
+        ["body is null", json(200, "null")],
+        ["no days", json(200, '{"downloads":1}')],
+        ["days is not a list", json(200, '{"downloads":1,"days":{}}')],
+        [
+            "a day without a count",
+            json(200, '{"downloads":1,"days":[{"day":"2026-11-19"}]}'),
+        ],
+        ["no total", json(200, '{"days":[]}')],
+        ["a negative total", json(200, '{"downloads":-1,"days":[]}')],
+        ["a total past any count", json(200, '{"downloads":1e999,"days":[]}')],
+        [
+            "a fractional count",
+            json(
+                200,
+                '{"downloads":1,"days":[{"day":"2026-11-19","downloads":0.5}]}',
+            ),
+        ],
+        [
+            "a day that is not a date",
+            json(
+                200,
+                '{"downloads":1,"days":[{"day":"yesterday","downloads":1}]}',
+            ),
+        ],
+        [
+            "a day that is a number",
+            json(
+                200,
+                '{"downloads":1,"days":[{"day":20261119,"downloads":1}]}',
+            ),
+        ],
+        ["a day that is null", json(200, '{"downloads":1,"days":[null]}')],
+    ];
+    for (const [label, response] of failures) {
+        const { fetch } = statsFetch(response);
+        assert.equal(
+            await getPackageDownloads("fmtlib/fmt", fetch),
+            null,
+            label,
+        );
     }
 });

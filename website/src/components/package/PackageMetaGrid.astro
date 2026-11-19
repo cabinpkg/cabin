@@ -14,10 +14,10 @@ interface Props {
 const { package: pack, versions, currentVersion } = Astro.props;
 ---
 
-<aside class="space-y-6">
+<aside class="flex flex-col gap-6">
     <Card class="p-6">
         <h2 class="mb-4 text-lg font-bold">Package Info</h2>
-        <dl class="space-y-4">
+        <dl class="flex flex-col gap-4">
             <div class="flex items-center justify-between gap-4">
                 <dt class="flex items-center gap-2 text-ink-muted">
                     <Icon name="box" class="h-4 w-4" />
@@ -44,8 +44,50 @@ const { package: pack, versions, currentVersion } = Astro.props;
                     </Badge>
                 </dd>
             </div>
+            <div
+                class="flex items-center justify-between gap-4"
+                data-downloads-total
+                hidden
+            >
+                <dt class="flex items-center gap-2 text-ink-muted">
+                    <Icon name="download" class="h-4 w-4" />
+                    Downloads
+                </dt>
+                <dd>
+                    <Badge tone="muted"><span data-downloads-count /></Badge>
+                </dd>
+            </div>
         </dl>
     </Card>
+
+    <div data-package-downloads data-package={pack.name} hidden>
+        <Card class="p-6">
+            <h2 class="mb-4 text-lg font-bold">Daily downloads</h2>
+            <div class="h-16" data-downloads-plot></div>
+            <p
+                class="mt-2 flex justify-between font-mono text-xs text-ink-faint"
+                aria-hidden="true"
+            >
+                <span data-downloads-first></span>
+                <span data-downloads-last></span>
+            </p>
+            <details class="mt-3 text-xs">
+                <summary class="cursor-pointer text-ink-muted">Table</summary>
+                <table
+                    class="mt-2 w-full font-mono text-ink-muted [&_td:last-child]:text-right [&_th:last-child]:text-right"
+                >
+                    <caption class="sr-only">Downloads per UTC day</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col" class="text-left font-normal">Day</th>
+                            <th scope="col" class="font-normal">Downloads</th>
+                        </tr>
+                    </thead>
+                    <tbody data-downloads-rows></tbody>
+                </table>
+            </details>
+        </Card>
+    </div>
 
     {/* A single-version card would only repeat the h1 and the count
         row above; it appears once there is somewhere to navigate. */}
@@ -96,3 +138,5 @@ const { package: pack, versions, currentVersion } = Astro.props;
         )
     }
 </aside>
+
+<script src="../../scripts/package-downloads.ts"></script>
