@@ -11,7 +11,8 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 use crate::routes::{Route, match_route};
 use crate::signup::civil_from_days;
@@ -62,7 +63,8 @@ pub struct Rule<'a> {
 
 /// Why a record is not a download. A record that fails several of the
 /// rule's conditions is counted under one of them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Excluded {
     /// Longer than [`Limits::record_bytes`], and not read.
     Oversized,
@@ -187,6 +189,42 @@ pub struct Tally {
     pub downloads: BTreeMap<Counted, u64>,
     /// Records that are not downloads, by reason.
     pub excluded: BTreeMap<Excluded, u64>,
+}
+
+impl Tally {
+    /// The downloads as JSON arrays of `[scope, name, version, day,
+    /// downloads]`, the day as `YYYY-MM-DD`: each download in one
+    /// array, and no array longer than `bytes` unless one download
+    /// alone is. One array is what one statement that adds a file's
+    /// downloads is bound (`sql::ADD_LOG_DOWNLOADS`), which D1 limits
+    /// in size; a tally with no download has none.
+    #[must_use]
+    pub fn payloads(&self, bytes: usize) -> Vec<String> {
+        let mut payloads = Vec::new();
+        let mut payload = String::new();
+        for (counted, downloads) in &self.downloads {
+            let entry = json!([
+                counted.scope,
+                counted.name,
+                counted.version,
+                counted.date(),
+                downloads
+            ])
+            .to_string();
+            // The entry would follow a comma, and a bracket ends the array.
+            if !payload.is_empty() && payload.len() + entry.len() + 2 > bytes {
+                payload.push(']');
+                payloads.push(std::mem::take(&mut payload));
+            }
+            payload.push(if payload.is_empty() { '[' } else { ',' });
+            payload.push_str(&entry);
+        }
+        if !payload.is_empty() {
+            payload.push(']');
+            payloads.push(payload);
+        }
+        payloads
+    }
 }
 
 /// One file being read: [`File::feed`] it the decompressed bytes in
@@ -552,6 +590,31 @@ mod tests {
             let found = tally_in(text.as_bytes(), ROOMY, size);
             assert_eq!(found.as_ref(), Ok(&whole), "chunks of {size}");
         }
+    }
+
+    #[test]
+    fn the_downloads_are_split_into_payloads_by_their_bytes() {
+        let found = Tally {
+            records: 9,
+            downloads: BTreeMap::from([(fmt(DAY), 3), (fmt(DAY + 1), 1), (fmt(DAY + 2), 5)]),
+            excluded: BTreeMap::new(),
+        };
+        let entries = [
+            r#"["fmtlib","fmt","10.2.1","2027-01-05",3]"#,
+            r#"["fmtlib","fmt","10.2.1","2027-01-06",1]"#,
+            r#"["fmtlib","fmt","10.2.1","2027-01-07",5]"#,
+        ];
+        let [first, second, third] = entries;
+        let alone = entries.map(|entry| format!("[{entry}]"));
+        let pair = format!("[{first},{second}]");
+        assert_eq!(
+            found.payloads(usize::MAX),
+            [format!("[{first},{second},{third}]")]
+        );
+        assert_eq!(found.payloads(pair.len()), [pair.clone(), alone[2].clone()]);
+        assert_eq!(found.payloads(pair.len() - 1), alone);
+        assert_eq!(found.payloads(1), alone, "one download alone may be longer");
+        assert_eq!(Tally::default().payloads(1), [""; 0]);
     }
 
     #[test]

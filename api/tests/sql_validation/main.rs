@@ -18,6 +18,7 @@ mod admission;
 mod alerts;
 mod auth;
 mod common;
+mod download_log;
 mod downloads;
 mod notifications;
 mod packages;
