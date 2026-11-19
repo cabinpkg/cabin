@@ -120,7 +120,7 @@ fn days_from_civil(year: u64, month: u64, day: u64) -> u64 {
 
 /// `(year, month, day)` of a days-since-epoch count (Hinnant's
 /// `civil_from_days`).
-fn civil_from_days(days: u64) -> (u64, u64, u64) {
+pub(crate) fn civil_from_days(days: u64) -> (u64, u64, u64) {
     let z = days + 719_468;
     let era = z / 146_097;
     let day_of_era = z - era * 146_097;
