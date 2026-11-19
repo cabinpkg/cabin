@@ -87,7 +87,7 @@ UI plus the entire API, glued together by `config.json`'s `dl`/`api` fields):
 | Hostname | Role |
 | --- | --- |
 | `registry.cabinpkg.com` | The machine read plane **only**: `config.json`, package metadata, the [catalog](#the-catalog), artifact downloads, and `/healthz`.  During the private alpha only `config.json` and the bodyless `/healthz` answer without an admitted credential.  The hosted registry keeps artifacts on the index host and declares no `dl`, so this one hostname covers what crates.io splits across `index.crates.io` and `static.crates.io`. |
-| `cabinpkg.com` | The website, plus everything else the registry serves: the browser sign-in flow, the session-cookie user API, the Bearer mutation routes, and `GET /api/v1/stats`, aggregate download/package totals (service-local; not part of the client protocol; during the private alpha a Bearer route like the others).  `config.json`'s [`api`](#registry-configuration) field names this origin. |
+| `cabinpkg.com` | The website, plus everything else the registry serves: the browser sign-in flow, the session-cookie user API, the Bearer mutation routes, `GET /api/v1/stats`, aggregate download/package totals, and `GET /api/v1/stats/packages/<scope>/<name>`, one package's download total and its downloads on each UTC day from where counting started, at most the last 90 (service-local; not part of the client protocol; during the private alpha Bearer routes like the others).  `config.json`'s [`api`](#registry-configuration) field names this origin. |
 
 On the index host, every path outside the read plane - the mutation routes included - answers
 the same uniform `401` as a missing token, whatever credential comes along: the mutation

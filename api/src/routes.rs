@@ -389,9 +389,29 @@ pub fn is_session_path(path: &str) -> bool {
     path == "/api/v1/user" || path.starts_with("/api/v1/user/")
 }
 
-/// The stats plane's one route: registry-wide totals, served to an
-/// admitted bearer caller.
+/// The stats plane's registry-wide totals, served to an admitted bearer
+/// caller like the rest of the plane.
 pub const STATS_PATH: &str = "/api/v1/stats";
+
+/// A route of the stats plane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatsRoute<'a> {
+    /// `GET /api/v1/stats`.
+    Summary,
+    /// `GET /api/v1/stats/packages/<scope>/<name>`.
+    Package { scope: &'a str, name: &'a str },
+}
+
+/// Matches `path` against the stats plane's routes.
+pub fn match_stats_route(path: &str) -> Option<StatsRoute<'_>> {
+    if path == STATS_PATH {
+        return Some(StatsRoute::Summary);
+    }
+    let (scope, name) = path
+        .strip_prefix("/api/v1/stats/packages/")?
+        .split_once('/')?;
+    (is_valid_scope(scope) && is_valid_name(name)).then_some(StatsRoute::Package { scope, name })
+}
 
 /// Whether `path` lies in the `/api/v1/stats` subtree. Like
 /// [`is_session_path`], the whole subtree answers as its own plane once
@@ -888,6 +908,28 @@ mod tests {
             "/",
         ] {
             assert!(!is_stats_path(path), "path: {path:?}");
+        }
+    }
+
+    #[test]
+    fn the_stats_routes_are_the_summary_and_a_package() {
+        assert_eq!(match_stats_route(STATS_PATH), Some(StatsRoute::Summary));
+        assert_eq!(
+            match_stats_route("/api/v1/stats/packages/fmtlib/fmt"),
+            Some(StatsRoute::Package {
+                scope: "fmtlib",
+                name: "fmt"
+            })
+        );
+        for path in [
+            "/api/v1/stats/",
+            "/api/v1/stats/packages/fmtlib",
+            "/api/v1/stats/packages/fmtlib/fmt/",
+            "/api/v1/stats/packages/fmtlib/fmt/10.2.1",
+            "/api/v1/stats/packages/fmt%6Cib/fmt",
+            "/api/v1/stats/packages/../fmt",
+        ] {
+            assert_eq!(match_stats_route(path), None, "path: {path:?}");
         }
     }
 
