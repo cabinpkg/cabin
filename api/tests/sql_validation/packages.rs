@@ -667,8 +667,8 @@ fn current_revisions_view_serves_the_newest_verified_revision() {
     assert_eq!(current(), Some(("aa".to_owned(), "aa".to_owned())));
 }
 
-/// The anonymous package-document reads cost rows of the requested
-/// package only. The migrated schema has no `sqlite_stat1` (the
+/// The anonymous package-document reads and the package's download
+/// total cost rows of the requested package only. The migrated schema has no `sqlite_stat1` (the
 /// registry never runs `ANALYZE`), so these are the plans production
 /// gets: a `revisions_verification`
 /// step would read every verified revision in the registry, and a
@@ -681,6 +681,7 @@ fn package_document_reads_seek_the_package() {
         sql::VERIFIED_REVISIONS_BY_PACKAGE,
         sql::VERIFIED_VERSION_DETAILS,
         sql::HAS_VERIFIED_VERSION,
+        sql::PACKAGE_DOWNLOADS,
     ] {
         let mut plan = conn
             .prepare(&format!("EXPLAIN QUERY PLAN {statement}"))

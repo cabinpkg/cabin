@@ -36,6 +36,33 @@ statements! {
          FROM current_revisions c \
          JOIN versions v ON v.scope = c.scope AND v.name = c.name AND v.version = c.version";
 
+    /// One package's served versions and their downloads, summed like
+    /// [`REGISTRY_STATS`]'s. No served version is a missing package.
+    /// `CROSS JOIN` seeks the package by primary key, as in
+    /// [`CURRENT_REVISIONS_BY_PACKAGE`](super::packages::CURRENT_REVISIONS_BY_PACKAGE).
+    PACKAGE_DOWNLOADS =
+        "SELECT COUNT(*) AS versions, COALESCE(SUM(v.downloads), 0) AS downloads \
+         FROM versions v \
+         CROSS JOIN current_revisions c \
+           ON c.scope = v.scope AND c.name = v.name AND c.version = v.version \
+         WHERE v.scope = ?1 AND v.name = ?2";
+
+    /// One package's downloads on each UTC day, one row a day, 0 for a
+    /// day without: from the day counting started
+    /// (`meta.downloads_cutoff`) or the first of the 90 kept days that
+    /// end with the day of `?3` (now), whichever is later, to that day.
+    /// A day before the start is not drawn as 0: nothing was counted.
+    PACKAGE_DAILY_DOWNLOADS =
+        "WITH RECURSIVE span(day) AS ( \
+           SELECT max(date(?3, '-89 days'), date(value)) FROM meta WHERE key = 'downloads_cutoff' \
+           UNION ALL SELECT date(day, '+1 day') FROM span WHERE day < date(?3)), \
+         counted(day, downloads) AS ( \
+           SELECT day, SUM(downloads) FROM version_daily_downloads \
+           WHERE scope = ?1 AND name = ?2 AND day >= date(?3, '-89 days') GROUP BY day) \
+         SELECT span.day AS day, COALESCE(counted.downloads, 0) AS downloads \
+         FROM span LEFT JOIN counted ON counted.day = span.day \
+         WHERE span.day <= date(?3) ORDER BY span.day";
+
     /// Applies one flush of the batched download telemetry
     /// (`src/telemetry.rs`): the buffered per-version count lands in
     /// one statement per version instead of one write per download.

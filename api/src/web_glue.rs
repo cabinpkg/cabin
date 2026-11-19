@@ -21,7 +21,7 @@ use worker::{
 use crate::glue::{changed_rows, github_id_allowed, js_int, non_negative, now_iso8601};
 use crate::routes::{
     CLAIM_DENIED_REDIRECT, CLAIM_GRANTED_REDIRECT, LOGIN_DENIED_ACCOUNT_AGE_PREFIX,
-    LOGIN_DENIED_REDIRECT, POST_LOGIN_REDIRECT, STATS_PATH, SessionRoute, WebRoute,
+    LOGIN_DENIED_REDIRECT, POST_LOGIN_REDIRECT, SessionRoute, StatsRoute, WebRoute,
 };
 use crate::{
     auth, breaker, claim, error, governor, governor_client, names, notification_email,
@@ -126,16 +126,55 @@ pub async fn respond_session(
 }
 
 /// The stats plane, reached only by an admitted bearer caller during
-/// the private alpha (`glue::bearer`). Exactly `GET /api/v1/stats`
-/// exists; unknown paths under the subtree are 404s, and non-GET is 405.
+/// the private alpha (`glue::bearer`). Unknown paths under the subtree
+/// are 404s, and non-GET is 405.
 pub async fn respond_stats(req: &Request, env: &Env, path: &str) -> worker::Result<Response> {
-    if path != STATS_PATH {
+    let Some(route) = crate::routes::match_stats_route(path) else {
         return json_error(404, error::NOT_FOUND);
-    }
+    };
     if req.method() != Method::Get {
         return json_error(405, error::METHOD_NOT_ALLOWED);
     }
-    stats_summary(env).await
+    match route {
+        StatsRoute::Summary => stats_summary(env).await,
+        StatsRoute::Package { scope, name } => package_stats(env, scope, name).await,
+    }
+}
+
+#[derive(Deserialize)]
+struct PackageDownloads {
+    versions: i64,
+    downloads: i64,
+}
+
+#[derive(Deserialize)]
+struct DayDownloads {
+    day: String,
+    downloads: i64,
+}
+
+/// `GET /api/v1/stats/packages/<scope>/<name>`: a 404 for a package
+/// with no served version.
+async fn package_stats(env: &Env, scope: &str, name: &str) -> worker::Result<Response> {
+    let db = env.d1("DB")?;
+    let total: Option<PackageDownloads> = db
+        .prepare(sql::PACKAGE_DOWNLOADS)
+        .bind(&[scope.into(), name.into()])?
+        .first(None)
+        .await?;
+    let Some(total) = total.filter(|total| total.versions > 0) else {
+        return json_error(404, error::NOT_FOUND);
+    };
+    let days: Vec<(String, u64)> = db
+        .prepare(sql::PACKAGE_DAILY_DOWNLOADS)
+        .bind(&[scope.into(), name.into(), now_iso8601().into()])?
+        .all()
+        .await?
+        .results::<DayDownloads>()?
+        .into_iter()
+        .map(|row| (row.day, non_negative(row.downloads)))
+        .collect();
+    json_response(&stats::package_json(non_negative(total.downloads), &days))
 }
 
 #[derive(Deserialize)]

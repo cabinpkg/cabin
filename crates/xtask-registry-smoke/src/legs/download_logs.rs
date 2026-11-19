@@ -12,7 +12,7 @@ use flate2::write::GzEncoder;
 use serde_json::{Map, Value, json};
 use xtask_registry_admin::{output, wrangler};
 
-use crate::context::Smoke;
+use crate::context::{Base, Smoke};
 use crate::legs::finale::BREAKER_CRON;
 use crate::servers::{d1, d1_rows};
 use crate::step;
@@ -83,6 +83,37 @@ pub fn run(smoke: &mut Smoke, scope: &str, name: &str, work: &Path) -> Result<()
             "{scope}/{name} {version} went from {total} to {total_after} downloads, \
              and from {daily_before} to {daily_after} on the day: not 2 more of each"
         );
+    }
+    package_stats(smoke, scope, name, &day)
+}
+
+/// The package's stats answer its served versions' downloads and the
+/// downloads the rows hold on `day`.
+fn package_stats(smoke: &mut Smoke, scope: &str, name: &str, day: &str) -> Result<()> {
+    let url = smoke.url(Base::Web, &format!("/api/v1/stats/packages/{scope}/{name}"));
+    let auth = smoke.auth.clone();
+    let status = smoke.http("GET", &url, &auth, None)?;
+    let answer: Value = serde_json::from_slice(&smoke.body).unwrap_or_default();
+    let rows = d1_rows(&format!(
+        "SELECT {day} AS day, COALESCE(SUM(downloads), 0) AS downloads \
+         FROM version_daily_downloads WHERE scope = '{scope}' AND name = '{name}' AND day = {day}"
+    ))?;
+    let (on_day, held) = (
+        text(rows.first(), "day")?,
+        number(rows.first(), "downloads")?,
+    );
+    let served = d1_rows(&format!(
+        "SELECT COALESCE(SUM(downloads), 0) AS downloads FROM versions v \
+         WHERE scope = '{scope}' AND name = '{name}' AND EXISTS (SELECT 1 FROM current_revisions c \
+           WHERE c.scope = v.scope AND c.name = v.name AND c.version = v.version)"
+    ))?;
+    let total = number(served.first(), "downloads")?;
+    let answered = answer["days"]
+        .as_array()
+        .and_then(|days| days.iter().find(|entry| entry["day"] == on_day.as_str()))
+        .and_then(|entry| entry["downloads"].as_i64());
+    if status != 200 || answered != Some(held) || answer["downloads"].as_i64() != Some(total) {
+        bail!("GET {url} answered {status} {answer}, not {total} and {held} downloads on {on_day}");
     }
     Ok(())
 }
