@@ -5,6 +5,7 @@ pub mod admission;
 pub mod anonymous;
 pub mod blobs;
 pub mod claims;
+pub mod download_logs;
 pub mod finale;
 pub mod notifications;
 pub mod publish;

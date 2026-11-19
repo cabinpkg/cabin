@@ -150,6 +150,39 @@ impl Rule<'_> {
     }
 }
 
+/// What a file of the job may hold (`api/docs/runbook.md`, "Download
+/// statistics"): twice what the job is set to write, so that no file
+/// it writes is refused.
+pub const LIMITS: Limits = Limits {
+    record_bytes: 65_536,
+    bytes: 10_000_000,
+    records: 20_000,
+};
+
+/// The bytes of one payload ([`Tally::payloads`]): far under the 2 MB
+/// D1 takes in one bound value.
+pub const PAYLOAD_BYTES: usize = 1_000_000;
+
+/// How long after its upload a file is read: its lifetime in R2. Its
+/// row is kept longer (`sql::DROP_OLD_LOG_FILES`), so a file that has
+/// a row is never read again, however late R2 deletes it.
+pub const READ_WINDOW_MS: u64 = 14 * 86_400_000;
+
+/// Whether a file uploaded at `uploaded_ms` is read at `now_ms`.
+#[must_use]
+pub fn readable(uploaded_ms: u64, now_ms: u64) -> bool {
+    now_ms.saturating_sub(uploaded_ms) < READ_WINDOW_MS
+}
+
+/// The decompressed size a gzip file states in its last four bytes
+/// (RFC 1952 `ISIZE`: the size modulo 2^32), if it is long enough to
+/// have them. The job's files state it truly.
+#[must_use]
+pub fn stated_size(gzip: &[u8]) -> Option<u64> {
+    let trailer = gzip.get(gzip.len().checked_sub(4)?..)?;
+    Some(u64::from(u32::from_le_bytes(trailer.try_into().ok()?)))
+}
+
 /// What one file may hold. Past `bytes` or `records` the file fails
 /// ([`FileError`]): its tally is not cut short. The records bound the
 /// tally as well, since each version and day in it took a record.
@@ -178,6 +211,16 @@ pub enum FileError {
     /// The record on `line` (from 1) is not a JSON object with the
     /// fields the rule reads, in their types and unit.
     Record { line: u64, error: String },
+}
+
+impl std::fmt::Display for FileError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Bytes => write!(f, "more than {} decompressed bytes", LIMITS.bytes),
+            Self::Records => write!(f, "more than {} records", LIMITS.records),
+            Self::Record { line, error } => write!(f, "record {line}: {error}"),
+        }
+    }
 }
 
 /// What one file adds.
@@ -615,6 +658,23 @@ mod tests {
         assert_eq!(found.payloads(pair.len() - 1), alone);
         assert_eq!(found.payloads(1), alone, "one download alone may be longer");
         assert_eq!(Tally::default().payloads(1), [""; 0]);
+    }
+
+    #[test]
+    fn a_gzip_file_states_its_size_in_its_last_four_bytes() {
+        assert_eq!(stated_size(&[0x1f, 0x8b, 0x10, 0x27, 0, 0]), Some(10_000));
+        assert_eq!(stated_size(&[0xff; 4]), Some(4_294_967_295));
+        assert_eq!(stated_size(&[1, 2, 3]), None);
+    }
+
+    #[test]
+    fn a_file_is_read_while_it_is_younger_than_its_lifetime() {
+        let uploaded = 1_799_150_400_000;
+        assert!(readable(uploaded, uploaded));
+        assert!(readable(uploaded, uploaded + READ_WINDOW_MS - 1));
+        assert!(!readable(uploaded, uploaded + READ_WINDOW_MS));
+        assert!(readable(uploaded + 1, uploaded), "a clock behind R2's");
+        assert_eq!(READ_WINDOW_MS, 1_209_600_000, "fourteen days");
     }
 
     #[test]

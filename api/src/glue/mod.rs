@@ -8,6 +8,7 @@
 
 mod bearer;
 mod cron;
+mod download_log;
 mod publication;
 mod read;
 
@@ -29,6 +30,7 @@ use bearer::handle_website;
 use cron::{
     deliver_notifications, evaluate_budgets, log_governor_usage, refresh_website, settle_uploads,
 };
+use download_log::count_downloads;
 use publication::{place_archives, publish_documents};
 use read::handle_registry;
 
@@ -447,7 +449,8 @@ const BREAKER_CRON: &str = "*/15 * * * *";
 /// queries leave their metric unset, which can escalate but never
 /// unblock writes, [`breaker::next_mode`]), then the upload lifecycle
 /// pass, the archive placement pass, the publish pass, the website
-/// catalog refresh, and the account notifications.
+/// catalog refresh, the download-log pass, and the account
+/// notifications.
 /// A schedule no job is registered for runs nothing.
 #[event(scheduled)]
 pub async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
@@ -466,6 +469,7 @@ pub async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
             place_archives(&env, &db).await;
             publish_documents(&env, &db).await;
             refresh_website(&env, &db).await;
+            count_downloads(&env, &db).await;
             // Last: a mail service that stalls holds up nothing else.
             deliver_notifications(&env, &db).await;
         }

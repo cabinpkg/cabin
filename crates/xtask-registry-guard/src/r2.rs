@@ -35,18 +35,20 @@ const PIN_SITE: &str = "crates/xtask-registry-guard/src/r2.rs";
 /// `glue/read.rs`: each acquisition is immediately preceded by a
 /// governor decide.  `store`'s head and put are admitted by its caller,
 /// before the D1 admission.  The cron's reservation pass admits each
-/// head before making it.  The archive placement's caller admits the
+/// head before making it, and the download-log pass admits each list
+/// and each read before making it.  The archive placement's caller admits the
 /// head, the read, and the put of one placement before making it, and
 /// the publish pass admits the head and the put of each attempt at a
 /// document, and the read and the put of the configuration.
 /// `web_glue`'s source viewer admits before every billable call.
-const SANCTIONED: [(&str, &[(&str, usize)]); 5] = [
+const SANCTIONED: [(&str, &[(&str, usize)]); 6] = [
     (
         "src/glue/read.rs",
         &[("artifact_response", 1), ("charged_blob_read", 1)],
     ),
     ("src/glue/bearer/package.rs", &[("store", 1)]),
     ("src/glue/cron.rs", &[("settle_reservations", 1)]),
+    ("src/glue/download_log.rs", &[("try_count_downloads", 1)]),
     (
         "src/glue/publication.rs",
         &[

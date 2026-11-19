@@ -1,5 +1,5 @@
 //! The run's tail: the breaker cron leg, the alert mail legs, the admin
-//! cron endpoint, the strict zip-container profile, the governor's hard limits across two mid-run
+//! cron endpoint, the download-log pass, the strict zip-container profile, the governor's hard limits across two mid-run
 //! dev-server restarts, the admin governor endpoint, the real
 //! verification driver's pass over two fresh versions (`driver_pass`),
 //! the bounded-concurrency leg, and the admission leg, after which the
@@ -174,6 +174,7 @@ pub fn run(smoke: &mut Smoke, inputs: &mut FinaleInputs<'_>) -> Result<()> {
     alert_mail(smoke)?;
     allowance_alert(smoke)?;
     admin_cron(smoke)?;
+    crate::legs::download_logs::run(smoke, inputs.scope, inputs.name, inputs.work)?;
     zip_profile(smoke, inputs)?;
     driver_pass(smoke, inputs)?;
     let fixtures = governor_fixtures(smoke, inputs)?;
