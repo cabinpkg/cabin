@@ -26,15 +26,19 @@ const LIMIT: usize = 10_000_000;
 
 /// The pass counts one version's downloads from a file, records the
 /// files it cannot count as errors, and adds nothing from them: the
-/// truncated file holds the same downloads as the counted one. A rerun
-/// clears the rows of these keys, whose objects it puts again.
+/// truncated file holds the same downloads as the counted one, and
+/// warns of them. A rerun clears the rows of these keys, whose objects
+/// it puts again, and the alert.
 ///
 /// # Errors
 ///
 /// The first failed check.
 pub fn run(smoke: &mut Smoke, scope: &str, name: &str, work: &Path) -> Result<()> {
-    step("the cron counts a download log's downloads and records the files it cannot count");
-    d1("DELETE FROM processed_log_files WHERE key LIKE 'smoke/%';")?;
+    step(
+        "the cron counts a download log's downloads, records the files it cannot count, and warns of them",
+    );
+    d1("DELETE FROM processed_log_files WHERE key LIKE 'smoke/%'; \
+        DELETE FROM alerts WHERE kind = 'download_logs';")?;
     let version_row = d1_rows(&format!(
         "SELECT version, downloads FROM versions \
          WHERE scope = '{scope}' AND name = '{name}' ORDER BY version LIMIT 1"
@@ -58,6 +62,16 @@ pub fn run(smoke: &mut Smoke, scope: &str, name: &str, work: &Path) -> Result<()
 
     smoke.check(BREAKER_CRON, &[200])?;
     check_rows()?;
+    // A pass records the alert from its listing, before it reads.
+    smoke.check(BREAKER_CRON, &[200])?;
+    let alert = d1_rows("SELECT level, summary FROM alerts WHERE kind = 'download_logs'")?;
+    if number(alert.first(), "level")? != 1
+        || text(alert.first(), "summary")? != "download log files: 5 that cannot be counted"
+    {
+        bail!(
+            "the download_logs alert is {alert:?}, not a WARNING for the 5 files that cannot be counted"
+        );
+    }
     let after = d1_rows(&format!(
         "SELECT downloads FROM versions \
          WHERE scope = '{scope}' AND name = '{name}' AND version = '{version}'"

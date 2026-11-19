@@ -15,10 +15,12 @@
 //! often.
 
 statements! {
-    /// The keys among the JSON array `?1` that have a row: the files a
-    /// pass does not read.
+    /// The keys among the JSON array `?1` that have a row, and their
+    /// status: the files a pass does not read, and which of them cannot
+    /// be counted.
     SETTLED_LOG_FILES =
-        "SELECT key FROM processed_log_files WHERE key IN (SELECT value FROM json_each(?1))";
+        "SELECT key, status FROM processed_log_files \
+         WHERE key IN (SELECT value FROM json_each(?1))";
 
     /// Registers a file (`?1`), where it has no row and `?6` is the
     /// start it was read against. `?2` is now, `?3` the object's

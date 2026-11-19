@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::alerts::{CRITICAL, WARNING};
 use crate::routes::{Route, match_route};
 use crate::signup::civil_from_days;
 
@@ -167,6 +168,69 @@ pub const PAYLOAD_BYTES: usize = 1_000_000;
 /// row is kept longer (`sql::DROP_OLD_LOG_FILES`), so a file that has
 /// a row is never read again, however late R2 deletes it.
 pub const READ_WINDOW_MS: u64 = 14 * 86_400_000;
+
+/// How long a file may wait unread before it is a WARNING.
+pub const UNREAD_WARNING_MS: u64 = 2 * 3_600_000;
+
+/// How long before the end of its lifetime a file that is not counted
+/// is CRITICAL.
+pub const EXPIRY_CRITICAL_MS: u64 = 48 * 3_600_000;
+
+/// The `download_logs` alert (`docs/runbook.md`, "Alerts") from a
+/// pass's listing: `unread`, the uploads of the files that have no
+/// row; `errors`, those of the files that cannot be counted; and `cut`,
+/// a listing that stopped before the bucket's end, past which files go
+/// unseen. A file is unresolved until it is counted, and CRITICAL once
+/// it is within [`EXPIRY_CRITICAL_MS`] of the end of its
+/// [`READ_WINDOW_MS`], or past it.
+#[must_use]
+pub fn backlog_alert(
+    now_ms: u64,
+    unread: &[u64],
+    errors: &[u64],
+    cut: bool,
+) -> Option<(u8, String)> {
+    let late = unread
+        .iter()
+        .filter(|&&uploaded| now_ms.saturating_sub(uploaded) > UNREAD_WARNING_MS)
+        .count();
+    let expiring_by = (now_ms + EXPIRY_CRITICAL_MS).saturating_sub(READ_WINDOW_MS);
+    let expiring = unread
+        .iter()
+        .chain(errors)
+        .filter(|&&uploaded| uploaded <= expiring_by)
+        .count();
+    let mut parts = Vec::new();
+    if late > 0 {
+        parts.push(format!("{late} unread for over 2 hours"));
+    }
+    if !errors.is_empty() {
+        parts.push(format!("{} that cannot be counted", errors.len()));
+    }
+    if expiring > 0 {
+        parts.push(format!(
+            "{expiring} not counted with 48 hours or less of their 14 days left"
+        ));
+    }
+    if cut {
+        parts.push("the listing stopped before the bucket's end".to_owned());
+    }
+    let level = match (expiring, parts.is_empty()) {
+        (0, true) => return None,
+        (0, false) => WARNING,
+        _ => CRITICAL,
+    };
+    Some((level, format!("download log files: {}", parts.join("; "))))
+}
+
+/// Whether a pass records the `download_logs` alert it worked out
+/// ([`backlog_alert`]) over the level the kind is recorded at, `held`.
+/// A listing that stopped before the bucket's end saw part of it: it may
+/// raise the alert, never lower it.
+#[must_use]
+pub fn records(held: i64, firing: Option<&(u8, String)>, whole: bool) -> bool {
+    whole || firing.map_or(0, |(level, _)| i64::from(*level)) >= held
+}
 
 /// Whether a file uploaded at `uploaded_ms` is read at `now_ms`.
 #[must_use]
@@ -665,6 +729,60 @@ mod tests {
         assert_eq!(stated_size(&[0x1f, 0x8b, 0x10, 0x27, 0, 0]), Some(10_000));
         assert_eq!(stated_size(&[0xff; 4]), Some(4_294_967_295));
         assert_eq!(stated_size(&[1, 2, 3]), None);
+    }
+
+    #[test]
+    fn the_backlog_alert_rises_with_the_files_age_and_errors() {
+        const HOUR: u64 = 3_600_000;
+        let now = 1_799_150_400_000;
+        let critical = |summary: &str| Some((CRITICAL, format!("download log files: {summary}")));
+        let warning = |summary: &str| Some((WARNING, format!("download log files: {summary}")));
+
+        assert_eq!(backlog_alert(now, &[], &[], false), None);
+        assert_eq!(backlog_alert(now, &[now, now - 2 * HOUR], &[], false), None);
+        assert_eq!(
+            backlog_alert(now, &[now, now - 2 * HOUR - 1], &[], false),
+            warning("1 unread for over 2 hours")
+        );
+        assert_eq!(
+            backlog_alert(now, &[], &[now, now], false),
+            warning("2 that cannot be counted")
+        );
+        assert_eq!(
+            backlog_alert(now, &[], &[], true),
+            warning("the listing stopped before the bucket's end")
+        );
+
+        // 48 hours or less of the 14 days left, or none.
+        let by = now - 12 * 24 * HOUR;
+        assert_eq!(
+            backlog_alert(now, &[by + 1], &[by + 1], false),
+            warning("1 unread for over 2 hours; 1 that cannot be counted")
+        );
+        assert_eq!(
+            backlog_alert(now, &[by, now - 20 * 24 * HOUR], &[], false),
+            critical(
+                "2 unread for over 2 hours; 2 not counted with 48 hours or less of their 14 days left"
+            )
+        );
+        assert_eq!(
+            backlog_alert(now, &[], &[by, now, now], true),
+            critical(
+                "3 that cannot be counted; 1 not counted with 48 hours or less of their 14 days left; \
+                 the listing stopped before the bucket's end"
+            )
+        );
+    }
+
+    #[test]
+    fn a_listing_stopped_short_never_lowers_the_alert() {
+        let warning = Some((WARNING, String::new()));
+        let critical = Some((CRITICAL, String::new()));
+        assert!(!records(2, warning.as_ref(), false));
+        assert!(records(2, critical.as_ref(), false));
+        assert!(records(1, critical.as_ref(), false));
+        assert!(records(2, warning.as_ref(), true));
+        assert!(records(2, None, true));
     }
 
     #[test]

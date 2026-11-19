@@ -626,7 +626,7 @@ fn send_failure(err: &worker::Error) -> String {
 
 /// The statement that records one kind as this pass saw it: firing at
 /// a level with the line that says why, or healthy.
-fn observe(
+pub(super) fn observe(
     db: &D1Database,
     now: &str,
     kind: alerts::Kind,
