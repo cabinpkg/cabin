@@ -278,6 +278,9 @@ time summed over the ports and the slowest ports.  Each port is built through a 
 package that depends on the
 just-published version, so the build consumes the registry artifact itself - resolution, checksum,
 archived manifest, source materialization, and compilation of every compiled library target.
+The probe links libraries only, so a port whose default features build an `executable` target is
+also installed from the temporary registry with `cabin install`, which builds its programs and
+runs none.
 Exercising a port's *API* (including its headers, calling its symbols) needs per-library
 knowledge a generic converter does not have, so that knowledge is committed in the port: a probe
 consumer compiles the port's `tests/main.cc` (or `tests/main.c` for the C consumer) when it has
