@@ -3,12 +3,14 @@
 //! the files that have no row, oldest upload first, and adds each
 //! file's downloads in one batch.
 //!
-//! A failure that a later read can mend - a governor refusal, an R2 or
-//! D1 error - ends the pass without an error row; the next run starts
-//! over from the listing. Only a file whose bytes cannot be counted
-//! gets an error row. The object is read whole before it is
-//! decompressed, so a read that breaks off is told apart from a file
-//! that is not gzip.
+//! The pass records the `download_logs` alert from its listing, before
+//! it reads, so that no failure of a read keeps the alert from being
+//! recorded; the next run's alert pass mails it. A failure that a later
+//! read can mend - a governor refusal, an R2 or D1 error - ends the
+//! listing or the reads without an error row; the next run starts over
+//! from the listing. Only a file whose bytes cannot be counted gets an
+//! error row. The object is read whole before it is decompressed, so a
+//! read that breaks off is told apart from a file that is not gzip.
 //!
 //! The runtime's `DecompressionStream` has no backpressure: one write
 //! decompresses all of its input into memory before a read takes any.
@@ -20,7 +22,7 @@
 //! short or made so - is decompressed whole before the limit on what
 //! the stream gives out stops it.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use futures_util::StreamExt;
 use serde::Deserialize;
@@ -33,8 +35,9 @@ use worker::{Bucket, ByteStream, D1Database, Env, Object, console_error, console
 use crate::download_log::{self, File, LIMITS, PAYLOAD_BYTES, Rule, Tally};
 use crate::governor::OpPool;
 use crate::governor_client::{self, Gate};
-use crate::sql;
+use crate::{alerts, sql};
 
+use super::cron::observe;
 use super::{changed_rows, consume_one, iso8601_from_ms, now_iso8601, read_meta};
 
 /// Pages of a thousand keys a pass lists: fourteen days of a file a
@@ -50,6 +53,7 @@ const FILES_PER_PASS: usize = 20;
 #[derive(Deserialize)]
 struct KeyRecord {
     key: String,
+    status: String,
 }
 
 /// Runs the pass once `ARCHIVES_ORIGIN` names the host the logs count
@@ -90,48 +94,36 @@ async fn try_count_downloads(env: &Env, db: &D1Database, origin: &str) -> worker
 
     let bucket = env.bucket("DOWNLOAD_LOGS")?;
     let now_ms = worker::Date::now().as_millis();
-    let mut due = Vec::new();
-    let mut cursor = None;
-    for page in 1..=LIST_PAGES {
-        if !admitted(env, OpPool::AInfra).await {
-            return Ok(());
-        }
-        let mut list = bucket.list().limit(1000);
-        if let Some(cursor) = cursor.take() {
-            list = list.cursor(cursor);
-        }
-        let listed = list.execute().await?;
-        let objects = listed.objects();
-        let keys = json!(objects.iter().map(Object::key).collect::<Vec<_>>()).to_string();
-        let settled: HashSet<String> = db
-            .prepare(sql::SETTLED_LOG_FILES)
-            .bind(&[keys.into()])?
-            .all()
+    let (mut unsettled, mut errors) = (Vec::new(), Vec::new());
+    let whole = list_files(env, db, &bucket, &mut unsettled, &mut errors)
+        .await
+        .unwrap_or_else(|err| {
+            console_error!("download-log pass: listing DOWNLOAD_LOGS: {err}");
+            false
+        });
+    let unread: Vec<u64> = unsettled.iter().map(|(uploaded_ms, ..)| *uploaded_ms).collect();
+    let firing = download_log::backlog_alert(now_ms, &unread, &errors, !whole);
+    let held = if whole {
+        0
+    } else {
+        db.prepare(sql::ALERT_LEVEL)
+            .bind(&[alerts::Kind::DownloadLogs.as_str().into()])?
+            .first::<i64>(Some("level"))
             .await?
-            .results::<KeyRecord>()?
-            .into_iter()
-            .map(|record| record.key)
-            .collect();
-        due.extend(
-            objects
-                .iter()
-                .filter(|object| !settled.contains(&object.key()))
-                .filter(|object| download_log::readable(object.uploaded().as_millis(), now_ms))
-                .map(|object| (object.uploaded().as_millis(), object.key(), object.size())),
-        );
-        cursor = listed.cursor();
-        if !listed.truncated() || cursor.is_none() {
-            break;
-        }
-        if page == LIST_PAGES {
-            console_error!(
-                "download-log pass: DOWNLOAD_LOGS holds more than {LIST_PAGES} pages; the later keys are not read"
-            );
-        }
+            .unwrap_or(0)
+    };
+    if download_log::records(held, firing.as_ref(), whole) {
+        observe(db, &now, alerts::Kind::DownloadLogs, firing)?
+            .run()
+            .await?;
     }
 
-    due.sort_unstable();
-    for (uploaded_ms, key, size) in due.into_iter().take(FILES_PER_PASS) {
+    unsettled.sort_unstable();
+    let due = unsettled
+        .into_iter()
+        .filter(|(uploaded_ms, ..)| download_log::readable(*uploaded_ms, now_ms))
+        .take(FILES_PER_PASS);
+    for (uploaded_ms, key, size) in due {
         let uploaded = iso8601_from_ms(uploaded_ms);
         if size > LIMITS.bytes {
             let error = format!("the object is {size} bytes, more than {}", LIMITS.bytes);
@@ -152,6 +144,57 @@ async fn try_count_downloads(env: &Env, db: &D1Database, origin: &str) -> worker
         }
     }
     Ok(())
+}
+
+/// Lists the bucket: the files that have no row go into `unsettled`, as
+/// their upload, key and size, and the uploads of those that cannot be
+/// counted into `errors`. Whether the listing reached the bucket's end;
+/// what it did not see is not taken to be healthy.
+async fn list_files(
+    env: &Env,
+    db: &D1Database,
+    bucket: &Bucket,
+    unsettled: &mut Vec<(u64, String, u64)>,
+    errors: &mut Vec<u64>,
+) -> worker::Result<bool> {
+    let mut cursor = None;
+    for _ in 0..LIST_PAGES {
+        if !admitted(env, OpPool::AInfra).await {
+            return Ok(false);
+        }
+        let mut list = bucket.list().limit(1000);
+        if let Some(cursor) = cursor.take() {
+            list = list.cursor(cursor);
+        }
+        let listed = list.execute().await?;
+        let objects = listed.objects();
+        let keys = json!(objects.iter().map(Object::key).collect::<Vec<_>>()).to_string();
+        let rows: HashMap<String, String> = db
+            .prepare(sql::SETTLED_LOG_FILES)
+            .bind(&[keys.into()])?
+            .all()
+            .await?
+            .results::<KeyRecord>()?
+            .into_iter()
+            .map(|record| (record.key, record.status))
+            .collect();
+        for object in &objects {
+            let uploaded_ms = object.uploaded().as_millis();
+            match rows.get(&object.key()).map(String::as_str) {
+                None => unsettled.push((uploaded_ms, object.key(), object.size())),
+                Some("error") => errors.push(uploaded_ms),
+                Some(_) => {}
+            }
+        }
+        cursor = listed.cursor();
+        if !listed.truncated() || cursor.is_none() {
+            return Ok(true);
+        }
+    }
+    console_error!(
+        "download-log pass: DOWNLOAD_LOGS holds more than {LIST_PAGES} pages; the later keys are not read"
+    );
+    Ok(false)
 }
 
 /// The tally of the file under `key`, or why it has none; nothing when
@@ -187,7 +230,7 @@ async fn read(
 }
 
 /// Whether the governor admits one more operation of `pool`; a refusal
-/// ends the pass.
+/// ends the listing or the reads.
 async fn admitted(env: &Env, pool: OpPool) -> bool {
     if let Gate::Refused(_) = governor_client::decide(env, &consume_one(pool)).await {
         console_error!(

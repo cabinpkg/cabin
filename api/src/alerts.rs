@@ -22,6 +22,8 @@ pub enum Kind {
     SharedUploads,
     /// The operator class's.
     OperatorUploads,
+    /// The request logs' files (`download_log::backlog_alert`).
+    DownloadLogs,
 }
 
 impl Kind {
@@ -32,6 +34,7 @@ impl Kind {
             Kind::Publication => "publication",
             Kind::SharedUploads => "shared_uploads",
             Kind::OperatorUploads => "operator_uploads",
+            Kind::DownloadLogs => "download_logs",
         }
     }
 }

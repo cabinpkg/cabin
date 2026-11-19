@@ -1105,8 +1105,9 @@ nothing.
 reads at most 20 files that have no row and were uploaded less than
 14 days ago, the oldest first. The governor admits each list and each
 read (`a_infra`, `b_infra`). A refusal, or an R2 or D1 error, ends the
-pass (`download-log pass: ...`) without an error row: what it committed
-stays, and the next pass reads every file that still has no row.
+listing or the reads (`download-log pass: ...`) without an error row:
+what the pass committed stays, and the next pass reads every file that
+still has no row.
 
 **A file that cannot be counted** - not a single gzip stream, cut
 short, over 10 MB compressed or decompressed (as its gzip trailer
@@ -1120,6 +1121,22 @@ next pass counts it once:
 ```sh
 node_modules/.bin/wrangler d1 execute DB --remote --command \
   "DELETE FROM processed_log_files WHERE key = '<key>' AND status = 'error'"
+```
+
+Each pass records the `download_logs` alert ("Alerts") from its
+listing, before it reads: the files that have no row, the files that
+cannot be counted, and whether the listing reached the bucket's end. A
+listing stopped short - at its 20 pages, by a refusal or by an error -
+is a WARNING of its own, as the files past it go unseen; having seen
+part of the bucket, it may raise the alert but never lowers it. The next run's
+alert pass mails it, so a file one pass refuses is mailed two passes
+later. A file counts while R2 lists it: once the lifecycle deletes the
+object of a file that was never counted, its downloads are lost and the
+alert lets it go. The files that cannot be counted:
+
+```sh
+node_modules/.bin/wrangler d1 execute DB --remote --command \
+  "SELECT key, at, uploaded, error FROM processed_log_files WHERE status = 'error'"
 ```
 
 A job that stops delivering looks like a registry nobody downloads
@@ -1302,6 +1319,7 @@ table `alerts`, and sends the operator one mail for what changed
 | `publication` | CRITICAL | a verified archive has been unplaced, or a change open, for over 45 minutes ("Upload lifecycle") |
 | `shared_uploads` | WARNING at half, CRITICAL at four fifths and at the limit | the default class's shared daily upload allowance has reached that share of its bytes or of its uploads, whichever is further |
 | `operator_uploads` | the same | the operator class's has |
+| `download_logs` | WARNING, CRITICAL with 48 hours or less left | a file in DOWNLOAD_LOGS has gone over 2 hours without a row or cannot be counted, or a pass's listing stopped before the bucket's end; CRITICAL once such a file has 48 hours or less of its 14 days left, or none ("Download statistics") |
 
 A kind is mailed when it first fires, when its level rises (the step
 from `writes_blocked` to `reads_blocked` is a rise), and once when it

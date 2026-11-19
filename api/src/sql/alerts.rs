@@ -35,6 +35,9 @@ statements! {
            attempted_at = NULL \
          WHERE kind = ?1 AND level > 0 AND substr(since, 1, 10) < substr(?2, 1, 10)";
 
+    /// The level kind `?1` is recorded at; a kind with no row is at 0.
+    ALERT_LEVEL = "SELECT level FROM alerts WHERE kind = ?1";
+
     /// Records a kind healthy again, as of `?2`. The summary stays: the
     /// recovery mail says what recovered.
     CLEAR_ALERT =
