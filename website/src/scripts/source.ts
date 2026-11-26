@@ -1,10 +1,12 @@
-// Drives /dashboard/source: settles the shared auth probe, then browses
-// one published version's archive through the session source route
-// (api/src/source.rs). The server is a byte proxy; everything zip
-// happens here - the end-of-central-directory tail is range-read first,
-// then the central directory, then one file's compressed span at a
-// time, decompressed with DecompressionStream. Content renders as text
-// only, always via textContent - never markup - with binary and
+// Drives the source viewer (SourceViewer.astro) on both of its pages.
+// A version's public page names its archive on the registry's static
+// host, read anonymously; /dashboard/source settles the shared auth
+// probe, then reads through the session source route
+// (api/src/source.rs). Either server only hands out bytes; everything
+// zip happens here - the end-of-central-directory tail is range-read
+// first, then the central directory, then one file's compressed span
+// at a time, decompressed with DecompressionStream. Content renders as
+// text only, always via textContent - never markup - with binary and
 // oversized files replaced by a notice.
 import { PACKAGE_NAME_PATTERN } from "../lib/account.ts";
 import { bootAccountShell, setText } from "../lib/accountShell";
@@ -28,17 +30,17 @@ import {
 } from "../lib/sourceArchive.ts";
 
 // PACKAGE_NAME_PATTERN and this version pattern admit only URL-path-safe
-// characters, so the route below is interpolated unencoded
+// characters, so the session route is interpolated unencoded
 // (percent-escapes would fail the server's charset checks). Registry
 // versions are plain upstream versions: pre-releases are legal, and
 // build metadata is refused because the packaging axis is the revision
 // id (api/src/routes.rs is_valid_version).
 const VERSION_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]*)?$/;
 
-const params = new URLSearchParams(window.location.search);
-const packageName = params.get("name") ?? "";
-const version = params.get("version") ?? "";
-const sourceUrl = `/api/v1/user/source/${packageName}/${version}`;
+// Where the archive is read from, set by the page's boot below. The
+// static host gets no credentials at all; the session route needs the
+// site's own cookie.
+let source: { url: string; credentials: "omit" | "same-origin" };
 
 interface Slice {
     bytes: Uint8Array<ArrayBuffer>;
@@ -62,8 +64,8 @@ async function fetchRange(
 ): Promise<SliceResult> {
     let response: Response;
     try {
-        response = await fetch(sourceUrl, {
-            credentials: "same-origin",
+        response = await fetch(source.url, {
+            credentials: source.credentials,
             headers: {
                 Range:
                     first === null
@@ -291,39 +293,18 @@ async function centralDirectory(
     return result.ok ? result.slice.bytes : null;
 }
 
-bootAccountShell(async (shell) => {
-    if (
-        !PACKAGE_NAME_PATTERN.test(packageName) ||
-        !VERSION_PATTERN.test(version)
-    ) {
-        shell.show(
-            "error",
-            "the source viewer needs a published package and version, " +
-                "reached from a package's version list on the dashboard",
-        );
-        return;
-    }
-    setText(shell.root, "[data-source-package]", packageName);
-    setText(shell.root, "[data-source-version]", version);
+// What stopped an archive from opening: an HTTP status (0 for
+// unreachable or incoherent), or a directory that does not parse.
+type OpenFailure = number | "malformed";
 
+// Reads the archive's directory, renders its tree into `root`, and
+// opens the manifest. Resolves to what stopped it, or null.
+async function openArchive(root: HTMLElement): Promise<OpenFailure | null> {
     const tail = await fetchRange(null, TAIL_BYTES);
     if (!tail.ok) {
-        if (tail.status === 401) {
-            shell.show("signed-out");
-        } else if (tail.status === 404) {
-            shell.show(
-                "error",
-                "this version is not browsable: only verified versions are",
-            );
-        } else {
-            shell.show(
-                "error",
-                "the archive could not be read from the registry",
-            );
-        }
-        return;
+        return tail.status;
     }
-    const tree = shell.root.querySelector("[data-source-tree]");
+    const tree = root.querySelector("[data-source-tree]");
     const directoryTemplate = document.getElementById("source-dir-template");
     const fileTemplate = document.getElementById("source-file-template");
     if (
@@ -331,7 +312,7 @@ bootAccountShell(async (shell) => {
         !(directoryTemplate instanceof HTMLTemplateElement) ||
         !(fileTemplate instanceof HTMLTemplateElement)
     ) {
-        return;
+        return 0;
     }
 
     let entries: ArchiveEntry[];
@@ -339,16 +320,11 @@ bootAccountShell(async (shell) => {
         const layout = parseEocd(tail.slice.bytes, tail.slice.size);
         const cd = await centralDirectory(tail.slice, layout);
         if (cd === null) {
-            shell.show(
-                "error",
-                "the archive could not be read from the registry",
-            );
-            return;
+            return 0;
         }
         entries = parseCentralDirectory(cd, layout);
     } catch {
-        shell.show("error", "the archive does not parse as a package archive");
-        return;
+        return "malformed";
     }
 
     let selected: HTMLButtonElement | null = null;
@@ -358,7 +334,7 @@ bootAccountShell(async (shell) => {
         button.setAttribute("aria-current", "true");
         button.classList.add("text-steel");
         selected = button;
-        void viewFile(shell.root, entry);
+        void viewFile(root, entry);
     };
     const fileButtons = new Map<
         string,
@@ -372,11 +348,80 @@ bootAccountShell(async (shell) => {
             fileButtons,
         ),
     );
-    shell.show("content");
     // The profile guarantees a root manifest; opening it beats an
     // empty pane.
     const manifest = fileButtons.get("cabin.toml");
     if (manifest) {
         select(manifest.entry, manifest.button);
     }
-});
+    return null;
+}
+
+function openFailureMessage(failure: OpenFailure): string {
+    return failure === "malformed"
+        ? "the archive does not parse as a package archive"
+        : "the archive could not be read from the registry";
+}
+
+const publicViewer = document.querySelector("[data-source-archive]");
+if (publicViewer instanceof HTMLElement) {
+    // A version's public page: the viewer stays hidden until the
+    // archive's directory has been read.
+    source = {
+        url: publicViewer.dataset.sourceArchive ?? "",
+        credentials: "omit",
+    };
+    const status = document.querySelector("[data-source-status]");
+    const say = (text: string | null) => {
+        if (status instanceof HTMLElement) {
+            status.hidden = text === null;
+            status.textContent = text ?? "";
+        }
+    };
+    say("Loading…");
+    void openArchive(publicViewer).then((failure) => {
+        publicViewer.hidden = failure !== null;
+        say(
+            failure === null
+                ? null
+                : `The files cannot be shown: ${openFailureMessage(failure)}.`,
+        );
+    });
+} else {
+    bootAccountShell(async (shell) => {
+        const params = new URLSearchParams(window.location.search);
+        const packageName = params.get("name") ?? "";
+        const version = params.get("version") ?? "";
+        if (
+            !PACKAGE_NAME_PATTERN.test(packageName) ||
+            !VERSION_PATTERN.test(version)
+        ) {
+            shell.show(
+                "error",
+                "the source viewer needs a published package and version, " +
+                    "reached from a package's version list on the dashboard",
+            );
+            return;
+        }
+        source = {
+            url: `/api/v1/user/source/${packageName}/${version}`,
+            credentials: "same-origin",
+        };
+        setText(shell.root, "[data-source-package]", packageName);
+        setText(shell.root, "[data-source-version]", version);
+
+        const failure = await openArchive(shell.root);
+        if (failure === null) {
+            shell.show("content");
+        } else if (failure === 401) {
+            shell.show("signed-out");
+        } else if (failure === 404) {
+            shell.show(
+                "error",
+                "this version is not browsable: only verified versions are",
+            );
+        } else {
+            shell.show("error", openFailureMessage(failure));
+        }
+    });
+}

@@ -124,10 +124,12 @@ website itself holds no sessions and no secrets.
   sign-in happens on production.
 - The session API client lives in `src/lib/account.ts`; `npm test` runs
   its `node:test` suite directly on Node (the version in `.node-version`).
-- `/dashboard/source` is the source viewer: it range-reads a published
-  version's zip archive through the registry's session source route and
-  parses the container client-side (`src/lib/sourceArchive.ts`, tested
-  the same way), rendering file contents as escaped text only.
+- `/dashboard/source` is the signed-in source viewer: it range-reads a
+  published version's zip archive through the registry's session source
+  route and parses the container client-side (`src/lib/sourceArchive.ts`,
+  tested the same way), rendering file contents as escaped text only. It
+  shares its frame and script with the public viewer of the package
+  detail routes below.
 - Signing out posts to the registry's `/api/v1/user/logout` (the session
   cookie is HttpOnly, so only the server's `Set-Cookie` can clear it),
   reached from the signed-in header menu.
@@ -141,13 +143,25 @@ no remote package API.
 
 ### Package detail routes
 
-Each package gets two statically generated detail routes:
+Each package gets these statically generated routes:
 
 - `/packages/<group>/<name>` renders the latest version.
 - `/packages/<group>/<name>/<version>` renders that exact version.
+- `/packages/<group>/<name>/<version>/source` is that version's source
+  viewer.
 
-Both are pre-rendered at build time from the same catalog and share their
-markup through `src/components/package/PackageDetailView.astro`.
+All are pre-rendered at build time from the same catalog. The two detail
+pages share their markup through
+`src/components/package/PackageDetailView.astro` and link the viewer.
+
+The viewer page carries the URL of the version's published archive on the
+registry's static archive host (`ARCHIVES_ORIGIN` in `src/lib/constants.ts`),
+and `src/scripts/source.ts` range-reads the archive from there in the
+visitor's browser: anonymously, with no cookie or other credential, and
+never the whole archive at once. It is the site's only cross-origin fetch,
+so that host is the one entry beside `'self'` in the `connect-src` of
+`public/_headers`, and the host must allow the site's origin to send
+`Range` and to read `Content-Range`.
 
 ### Documentation
 

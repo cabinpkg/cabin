@@ -96,13 +96,18 @@ function catalogPackage(entry: unknown): CatalogPackage {
 }
 
 function packageRecord(name: string, entry: unknown): PackageRecord {
-    if (!isRecord(entry) || typeof entry.version !== "string") {
+    if (
+        !isRecord(entry) ||
+        typeof entry.version !== "string" ||
+        typeof entry.revision !== "string"
+    ) {
         throw new Error(`Malformed catalog version of ${name}.`);
     }
     const context = `${name}@${entry.version}`;
     return {
         name,
         version: entry.version,
+        revision: entry.revision,
         manifest: versionManifestInfo(entry, context),
         upstream: upstream(entry.upstream, context),
         license: license(entry.license, context),

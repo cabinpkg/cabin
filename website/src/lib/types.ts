@@ -3,6 +3,9 @@ import type { PackageManifestInfo } from "./manifestInfo.ts";
 export interface PackageRecord {
     name: string;
     version: string;
+    // The id of the packaging revision the registry serves for this
+    // version; with the name and version it names the published archive.
+    revision: string;
     // Dependency and feature declarations (src/lib/manifestInfo.ts).
     manifest: PackageManifestInfo;
     upstream: PackageUpstream | null;

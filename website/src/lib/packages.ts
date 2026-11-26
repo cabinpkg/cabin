@@ -1,4 +1,5 @@
 import { type Catalog, type CatalogPackage, loadCatalog } from "./catalog.ts";
+import { ARCHIVES_ORIGIN } from "./constants.ts";
 import type { PackageRecord, PackageSearchIndexItem } from "./types.ts";
 
 export type { PackageRecord };
@@ -110,6 +111,23 @@ export function getPackageVersionHref(
     }
 
     return `/packages/${encodeURIComponent(parts.group)}/${encodeURIComponent(parts.name)}/${encodeURIComponent(version)}`;
+}
+
+// A version's public source viewer page.
+export function getPackageSourceHref(
+    packageName: string,
+    version: string,
+): string {
+    return `${getPackageVersionHref(packageName, version)}/source`;
+}
+
+// Where the registry serves a version's published archive: its key
+// layout (api/src/publication.rs archive_key) under the archive host.
+// Names, versions, and revision ids are URL-path-safe as they are, and
+// the key holds them unescaped.
+export function getPackageArchiveUrl(pack: PackageRecord): string {
+    const [scope, name] = pack.name.split("/");
+    return `${ARCHIVES_ORIGIN}/archives/${scope}/${name}/${scope}-${name}-${pack.version}-${pack.revision}.zip`;
 }
 
 function getPackageRouteParts(packageName: string): PackageRouteParts | null {

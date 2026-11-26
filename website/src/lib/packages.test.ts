@@ -1,12 +1,18 @@
 // node:test suite for the version navigation list (`npm test`).
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildVersionList, type PackageRecord } from "./packages.ts";
+import {
+    buildVersionList,
+    getPackageArchiveUrl,
+    getPackageSourceHref,
+    type PackageRecord,
+} from "./packages.ts";
 
 function record(version: string): PackageRecord {
     return {
         name: "cabin-ports/zlib",
         version,
+        revision: "0a1b2c3d4e5f6a7b",
         manifest: { dependencies: [], features: null },
         upstream: null,
         license: null,
@@ -38,4 +44,16 @@ test("the version list keeps the registry's order and marks its latest", () => {
             isLatest: false,
         },
     ]);
+});
+
+test("a version's viewer page reads the archive the registry published", () => {
+    assert.equal(
+        getPackageSourceHref("cabin-ports/zlib", "1.3.1"),
+        "/packages/cabin-ports/zlib/1.3.1/source",
+    );
+    // The registry's key for a revision, on its archive host.
+    assert.equal(
+        getPackageArchiveUrl(record("2.1.0-rc.1")),
+        "https://static.cabinpkg.com/archives/cabin-ports/zlib/cabin-ports-zlib-2.1.0-rc.1-0a1b2c3d4e5f6a7b.zip",
+    );
 });
