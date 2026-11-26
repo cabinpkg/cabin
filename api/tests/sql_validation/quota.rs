@@ -727,3 +727,28 @@ fn daily_windows_end_at_utc_midnight() {
     assert_eq!(revive(&conn, 3.0, "busy-c", "rj", 1.0, late), 1);
     assert_eq!(tally_drift(&conn), 0);
 }
+
+/// The dashboard reads what the user's upload allowance of one UTC day
+/// has been charged: that user's row of that day alone.
+#[test]
+fn the_dashboard_usage_reads_the_days_charged_uploads() {
+    let conn = migrated_connection();
+    conn.execute_batch(
+        "INSERT INTO users (id, created_at)
+           VALUES (2, '2026-10-25T08:00:00.000Z'), (3, '2026-10-25T08:00:00.000Z');
+         INSERT INTO user_daily_upload_usage (usage_date, user_id, bytes, uploads)
+           VALUES ('2026-10-25', 3, 900, 9), ('2026-10-26', 2, 50, 1), ('2026-10-26', 3, 700, 3);",
+    )
+    .expect("seed two days of charges");
+    let read = |day: &str| {
+        conn.query_row(sql::USER_USAGE, rusqlite::params![3.0, day], |row| {
+            Ok((
+                row.get::<_, i64>("upload_bytes_today")?,
+                row.get::<_, i64>("uploads_today")?,
+            ))
+        })
+        .expect("USER_USAGE")
+    };
+    assert_eq!(read("2026-10-26T"), (700, 3));
+    assert_eq!(read("2026-10-27T"), (0, 0));
+}

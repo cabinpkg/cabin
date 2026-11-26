@@ -245,6 +245,7 @@ pub fn session_plane(smoke: &mut Smoke) -> Result<String> {
     smoke.expect_body(r#""login":"smoke""#)?;
     session_request(smoke, &session, "GET", "/api/v1/user/usage", 200, &[], None)?;
     smoke.expect_body(r#""quotas""#)?;
+    smoke.expect_body(r#""uploads_today":{"bytes":"#)?;
     session_request(
         smoke,
         &session,

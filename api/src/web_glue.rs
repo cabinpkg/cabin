@@ -777,6 +777,8 @@ async fn scope_owner(db: &D1Database, scope: &str, user_id: i64) -> worker::Resu
 struct UsageRecord {
     stored_bytes: i64,
     published_today: i64,
+    upload_bytes_today: i64,
+    uploads_today: i64,
     verified_count: i64,
     pending_count: i64,
     rejected_count: i64,
@@ -791,7 +793,7 @@ struct PackageCountRecord {
 async fn usage(db: &D1Database, user: UserRecord) -> worker::Result<Response> {
     // "Today" is the UTC calendar day, the same lexicographic window the
     // publish quotas use; a non-ISO clock (impossible in practice) only
-    // zeroes the today counter. The package count matches the quota
+    // zeroes the today counters. The package count matches the quota
     // semantics: packages the user created, not merely published into.
     let now = now_iso8601();
     let day_prefix = quota::utc_day_prefix(&now).unwrap_or(&now);
@@ -807,6 +809,8 @@ async fn usage(db: &D1Database, user: UserRecord) -> worker::Result<Response> {
     let usage_record = usage_record.unwrap_or(UsageRecord {
         stored_bytes: 0,
         published_today: 0,
+        upload_bytes_today: 0,
+        uploads_today: 0,
         verified_count: 0,
         pending_count: 0,
         rejected_count: 0,
@@ -828,6 +832,8 @@ async fn usage(db: &D1Database, user: UserRecord) -> worker::Result<Response> {
         scope_claims: non_negative(claim_record.map_or(0, |record| record.n)),
         stored_bytes: non_negative(usage_record.stored_bytes),
         published_today: non_negative(usage_record.published_today),
+        upload_bytes_today: non_negative(usage_record.upload_bytes_today),
+        uploads_today: non_negative(usage_record.uploads_today),
         verified_count: non_negative(usage_record.verified_count),
         pending_count: non_negative(usage_record.pending_count),
         rejected_count: non_negative(usage_record.rejected_count),

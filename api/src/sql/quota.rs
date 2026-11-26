@@ -77,7 +77,9 @@ statements! {
     /// metric.
     TOTAL_STORED_BYTES = "SELECT COALESCE(SUM(stored_bytes), 0) AS n FROM users";
 
-    /// The dashboard usage aggregate over everything the user published.
+    /// The dashboard usage aggregate over everything the user published,
+    /// with what the user's upload allowance of the UTC day (`?2`, its
+    /// `YYYY-MM-DDT` prefix) has been charged.
     USER_USAGE =
         "SELECT COALESCE(SUM(CASE WHEN verification != 'rejected' \
          THEN archive_size ELSE 0 END), 0) AS stored_bytes, \
@@ -86,7 +88,13 @@ statements! {
                       THEN 1 ELSE 0 END), 0) AS published_today, \
          COALESCE(SUM(verification = 'verified'), 0) AS verified_count, \
          COALESCE(SUM(verification = 'pending'), 0) AS pending_count, \
-         COALESCE(SUM(verification = 'rejected'), 0) AS rejected_count \
+         COALESCE(SUM(verification = 'rejected'), 0) AS rejected_count, \
+         COALESCE((SELECT bytes FROM user_daily_upload_usage \
+                   WHERE usage_date = substr(?2, 1, 10) AND user_id = ?1), 0) \
+             AS upload_bytes_today, \
+         COALESCE((SELECT uploads FROM user_daily_upload_usage \
+                   WHERE usage_date = substr(?2, 1, 10) AND user_id = ?1), 0) \
+             AS uploads_today \
          FROM revisions WHERE published_by = ?1";
 
     /// The dashboard's created-package count (quota semantics: created,
