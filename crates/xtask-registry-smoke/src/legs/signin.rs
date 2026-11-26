@@ -1,10 +1,11 @@
 //! The sign-in callback end to end against the GitHub mock: an
 //! existing user signs in whatever their account age, a fresh account
 //! under the sign-up gate's 90 days is refused with the first eligible
-//! date, and a fresh account past them is created and signed in
-//! (`api/src/signup.rs`). Each granted sign-in also reads the account's
-//! notification address (`api/src/notification_email.rs`), and so does
-//! a login-session mint.
+//! date, a fresh account with no creation time or off the allowlist is
+//! refused with no account, and a fresh account past them is created
+//! and signed in (`api/src/signup.rs`). Each granted sign-in also reads
+//! the account's notification address
+//! (`api/src/notification_email.rs`), and so does a login-session mint.
 
 use anyhow::{Context as _, Result, bail};
 
@@ -15,7 +16,7 @@ use crate::servers::{d1, d1_rows};
 use crate::step;
 use crate::text::{capture, first_line, grep_lines, status_line_is, text};
 
-/// The sign-up gate's three roundtrips. Only the `fresh-old` sign-in
+/// The callback's admission roundtrips. Only the `fresh-old` sign-in
 /// writes an identity row (github id 4), and the seed removes that
 /// account before a rerun (`servers.rs`), so every run creates it. The
 /// mock's `/user` is restored before the notification-address checks.
@@ -24,7 +25,7 @@ use crate::text::{capture, first_line, grep_lines, status_line_is, text};
 ///
 /// The first failed check.
 pub fn run(smoke: &mut Smoke, github_port: u16) -> Result<()> {
-    step("the sign-up gate refuses young accounts and leaves the rest alone");
+    step("a first sign-in needs an old enough, allowlisted account; an existing user's does not");
     // The seeded user (github id 0) is an existing account: the gate
     // must not consult its age, so a freshly-created profile must
     // still land on the dashboard with a session.
@@ -55,6 +56,32 @@ pub fn run(smoke: &mut Smoke, github_port: u16) -> Result<()> {
             "a refused sign-in set a session cookie: {}",
             capture(&smoke.headers)
         );
+    }
+
+    // The two other refusals of a first sign-in: a profile with no
+    // creation time (id 3 is allowlisted and has no account), and an
+    // old account that the allowlist does not admit (id 5).  Neither
+    // gets a session or an account.
+    for (mode, id, check) in [
+        ("fresh-undated", "3", "the creation-time gate"),
+        ("fresh-unlisted", "5", "the allowlist"),
+    ] {
+        let users = d1_rows("SELECT COUNT(*) AS n FROM users")?;
+        signin_mode(smoke, github_port, mode)?;
+        let block = callback_roundtrip(smoke)?;
+        let location = location_value(&block);
+        if location != "/login/denied/" || !session_cookies(&block).is_empty() {
+            bail!(
+                "{check} did not refuse the sign-in: '{location}' {}",
+                capture(&smoke.headers)
+            );
+        }
+        let created = d1_rows(&format!(
+            "SELECT 1 FROM identities WHERE provider = 'github' AND provider_account_id = '{id}'"
+        ))?;
+        if !created.is_empty() || d1_rows("SELECT COUNT(*) AS n FROM users")? != users {
+            bail!("{check} refused the sign-in but still created an account");
+        }
     }
 
     // The same fresh path past the age line: account creation works.

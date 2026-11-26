@@ -3103,6 +3103,10 @@ struct CapturedTrustpub {
     body: Vec<u8>,
 }
 
+/// A mutation status that answers a `429` carrying the daily upload
+/// limit's envelope code (with the `Retry-After` every `429` here has).
+const DAILY_UPLOAD_LIMIT: u16 = 4290;
+
 /// Mock hosted-registry shape for trusted publishing: a public
 /// `config.json` declaring this server as its own `api` origin,
 /// `PUT /api/v1/trusted_publishing/tokens` minting [`MINTED_TOKEN`]
@@ -3199,7 +3203,15 @@ impl TrustpubRegistryServer {
                         201 => r#"{"ok":true}"#,
                         403 => r#"{"errors":[{"detail":"scope membership required"}]}"#,
                         429 => r#"{"errors":[{"detail":"rate limited"}]}"#,
+                        DAILY_UPLOAD_LIMIT => {
+                            r#"{"errors":[{"detail":"your daily allowance of 30 uploads is spent; it resets at 2026-11-13T00:00:00Z","code":"daily_upload_limit_exceeded","limit_kind":"user_count","limit":30,"used":30,"reset_at":"2026-11-13T00:00:00Z"}]}"#
+                        }
                         _ => r#"{"errors":[{"detail":"unexpected"}]}"#,
+                    };
+                    let status = if status == DAILY_UPLOAD_LIMIT {
+                        429
+                    } else {
+                        status
                     };
                     let mut response =
                         tiny_http::Response::from_string(body).with_status_code(status);
@@ -3839,6 +3851,41 @@ sources = ["src/z.c"]
         .filter(|c| c.path.starts_with("/api/v1/packages/"))
         .count();
     assert_eq!(uploads, 1, "a single-package 429 must fail fast");
+}
+
+/// A daily upload limit is not a rate limit to pace: mid-batch, with a
+/// `Retry-After` on the `429`, the limited upload is attempted once and
+/// the publish fails naming the limit.
+#[test]
+fn a_daily_upload_limit_is_not_retried_in_a_batch() {
+    let registry = TrustpubRegistryServer::start(&[201, DAILY_UPLOAD_LIMIT, 201]);
+    let oidc = OidcServer::start();
+    let dir = TempDir::new().unwrap();
+    let zlib = dir.path().join("zlib");
+    write_scoped_zlib_package(&zlib);
+    let demo = dir.path().join("demo");
+    write_scoped_publishable_package(&demo);
+
+    let assertion = cabin_under_actions(&oidc)
+        .args(["-Z", "remote-registry", "publish", "--manifest-path"])
+        .arg(zlib.join("cabin.toml"))
+        .arg("--manifest-path")
+        .arg(demo.join("cabin.toml"))
+        .args(["--index-url", &registry.url])
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(&stderr, "daily allowance of 30 uploads is spent"),
+        "expected the limit's detail in: {stderr}"
+    );
+    assert!(!stderr.contains("retrying"), "{stderr}");
+    let uploads = registry
+        .captured()
+        .iter()
+        .filter(|c| c.path.starts_with("/api/v1/packages/"))
+        .count();
+    assert_eq!(uploads, 2, "the limited upload is attempted once, no more");
 }
 
 /// An upload failure mid-batch cannot swallow what already landed:
