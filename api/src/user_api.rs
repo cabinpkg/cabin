@@ -27,7 +27,10 @@ pub fn user_json(
 /// The usage block: the user's quota class, current consumption, and the
 /// class's quota values. `stored_bytes` excludes rejected versions
 /// (their bytes are refunded); the per-status counts cover everything
-/// the user ever published.
+/// the user ever published, and `pending_count` is what the pending
+/// limit counts. The quota values are the account's class's: a publish
+/// made with a token granted another class (trusted publishing can
+/// grant one) is measured against that class instead.
 pub struct UsageInfo {
     pub quota_class: String,
     pub package_count: u64,
@@ -37,6 +40,10 @@ pub struct UsageInfo {
     pub scope_claims: u64,
     pub stored_bytes: u64,
     pub published_today: u64,
+    /// What the user's daily upload allowance has been charged this UTC
+    /// day: admitted uploads stay charged whatever becomes of them.
+    pub upload_bytes_today: u64,
+    pub uploads_today: u64,
     pub verified_count: u64,
     pub pending_count: u64,
     pub rejected_count: u64,
@@ -51,6 +58,10 @@ pub fn usage_json(usage: &UsageInfo) -> String {
         "scope_claims": usage.scope_claims,
         "stored_bytes": usage.stored_bytes,
         "published_today": usage.published_today,
+        "uploads_today": {
+            "bytes": usage.upload_bytes_today,
+            "count": usage.uploads_today,
+        },
         "versions": {
             "verified": usage.verified_count,
             "pending": usage.pending_count,
@@ -62,6 +73,9 @@ pub fn usage_json(usage: &UsageInfo) -> String {
             "max_new_packages_per_day": usage.quotas.max_new_packages_per_day,
             "max_packages_total": usage.quotas.max_packages_total,
             "max_versions_per_package_per_day": usage.quotas.max_versions_per_package_per_day,
+            "max_upload_bytes_per_day": usage.quotas.max_upload_bytes_per_day,
+            "max_uploads_per_day": usage.quotas.max_uploads_per_day,
+            "max_pending_uploads": usage.quotas.max_pending_uploads,
             "max_scope_claims_total": usage.quotas.max_scope_claims_total,
             "publish_burst": usage.quotas.publish_burst,
             "publish_refill_per_minute": usage.quotas.publish_refill_per_minute,
@@ -491,6 +505,8 @@ mod tests {
             scope_claims: 1,
             stored_bytes: 1_048_576,
             published_today: 3,
+            upload_bytes_today: 2_097_152,
+            uploads_today: 5,
             verified_count: 4,
             pending_count: 1,
             rejected_count: 0,
@@ -498,7 +514,7 @@ mod tests {
         };
         assert_eq!(
             usage_json(&usage),
-            r#"{"quota_class":"default","package_count":2,"scope_claims":1,"stored_bytes":1048576,"published_today":3,"versions":{"verified":4,"pending":1,"rejected":0},"quotas":{"max_archive_bytes":16777216,"max_total_bytes_per_user":134217728,"max_new_packages_per_day":5,"max_packages_total":20,"max_versions_per_package_per_day":30,"max_scope_claims_total":3,"publish_burst":5.0,"publish_refill_per_minute":1.0}}"#
+            r#"{"quota_class":"default","package_count":2,"scope_claims":1,"stored_bytes":1048576,"published_today":3,"uploads_today":{"bytes":2097152,"count":5},"versions":{"verified":4,"pending":1,"rejected":0},"quotas":{"max_archive_bytes":16777216,"max_total_bytes_per_user":134217728,"max_new_packages_per_day":5,"max_packages_total":20,"max_versions_per_package_per_day":30,"max_upload_bytes_per_day":268435456,"max_uploads_per_day":30,"max_pending_uploads":3,"max_scope_claims_total":3,"publish_burst":5.0,"publish_refill_per_minute":1.0}}"#
         );
     }
 
