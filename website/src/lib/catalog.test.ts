@@ -34,6 +34,10 @@ test("the committed fixture parses in the registry's order", () => {
         checksum: `sha256:${"9".repeat(64)}`,
     });
     assert.equal(packages[0].versions[0].upstream, null);
+    assert.equal(packages[1].versions[0].license, "Zlib");
+    assert.equal(packages[0].versions[1].license, "MIT OR Apache-2.0");
+    assert.equal(packages[0].versions[0].license, null);
+    assert.equal(packages[0].versions[2].license, "BSD-3-Clause");
 });
 
 test("a document outside the catalog contract fails the build", () => {
@@ -46,6 +50,19 @@ test("a document outside the catalog contract fails the build", () => {
                 schema: 1,
                 packages: [
                     { name: "a/b", latest: "2.0.0", versions: [version] },
+                ],
+            },
+        ],
+        [
+            "a license that is not a string",
+            {
+                schema: 1,
+                packages: [
+                    {
+                        name: "a/b",
+                        latest: "1.0.0",
+                        versions: [{ ...version, license: ["MIT"] }],
+                    },
                 ],
             },
         ],

@@ -104,6 +104,36 @@ export function shipsHidden(html, marker) {
     return found;
 }
 
+// The visible text of each outermost element carrying `marker`,
+// whitespace collapsed as a browser renders it.
+export function markedText(html, marker) {
+    const found = [];
+    // `into` collects the text of the marked element the walk is inside.
+    const walk = (node, into) => {
+        if (
+            INVISIBLE_TAGS.has(node.tagName) ||
+            attribute(node, "hidden") !== undefined
+        ) {
+            return;
+        }
+        if (node.nodeName === "#text") {
+            into?.push(node.value);
+            return;
+        }
+        const marked =
+            into === undefined && attribute(node, marker) !== undefined;
+        const parts = marked ? [] : into;
+        for (const child of node.childNodes ?? []) {
+            walk(child, parts);
+        }
+        if (marked) {
+            found.push(parts.join("").replace(/\s+/g, " ").trim());
+        }
+    };
+    walk(parse(html, { scriptingEnabled: false }), undefined);
+    return found;
+}
+
 // The <main> content floor: enough visible prose to be worth
 // rendering. Deliberately far below what the pages actually carry -
 // the check catches a page collapsing to an empty client-rendered
@@ -217,14 +247,18 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
                     {
                         segments: ["packages", ...name.split("/")],
                         snippet: `"${name}" = "=${latest}"`,
+                        license: versions.find(
+                            ({ version }) => version === latest,
+                        )?.license,
                     },
-                    ...versions.map(({ version }) => ({
+                    ...versions.map(({ version, license }) => ({
                         segments: ["packages", ...name.split("/"), version],
                         snippet: `"${name}" = "=${version}"`,
+                        license,
                     })),
                 ],
             );
-            for (const { segments, snippet } of expectations) {
+            for (const { segments, snippet, license } of expectations) {
                 const relativePath = path.join(...segments, "index.html");
                 let detail;
                 try {
@@ -239,6 +273,17 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
                     detail.content.mainText.includes("[dependencies]") &&
                         detail.content.mainText.includes(snippet),
                     "carries this package's install snippet in static text",
+                );
+                // One row holding exactly this version's license (page text
+                // collapses whitespace, which an SPDX expression may carry),
+                // or no row for a version without one.
+                const shown = markedText(detail.html, "data-license");
+                detail.expect(
+                    license === undefined
+                        ? shown.length === 0
+                        : shown.length === 1 &&
+                              shown[0] === license.replace(/\s+/g, " ").trim(),
+                    "shows exactly this version's license in static text",
                 );
                 detail.expect(
                     shipsHidden(detail.html, "data-downloads-total") === true &&

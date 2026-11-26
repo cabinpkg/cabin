@@ -44,6 +44,22 @@ const { package: pack, versions, currentVersion } = Astro.props;
                     </Badge>
                 </dd>
             </div>
+            {
+                pack.license && (
+                    <div class="flex items-center justify-between gap-4">
+                        <dt class="flex items-center gap-2 text-ink-muted">
+                            <Icon name="scale" class="h-4 w-4" />
+                            License
+                        </dt>
+                        <dd
+                            class="wrap-anywhere text-right font-mono text-sm"
+                            data-license
+                        >
+                            {pack.license}
+                        </dd>
+                    </div>
+                )
+            }
             <div
                 class="flex items-center justify-between gap-4"
                 data-downloads-total
@@ -106,6 +122,8 @@ const { package: pack, versions, currentVersion } = Astro.props;
                 <h2 class="mb-4 text-lg font-bold">Provenance</h2>
                 <p class="mb-4 text-sm leading-6 text-ink-muted">
                     Built from this pinned upstream source archive.
+                    {pack.license &&
+                        " The license in Package Info is the upstream library's: the terms of the code built from it."}
                 </p>
                 <dl class="space-y-4">
                     <div>

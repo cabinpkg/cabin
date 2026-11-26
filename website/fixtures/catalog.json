@@ -15,6 +15,7 @@
                 {
                     "version": "2.1.0",
                     "revision": "1a1b2c3d4e5f6a7b",
+                    "license": "MIT OR Apache-2.0",
                     "dependencies": {
                         "cabin-ports/zlib": {
                             "version": "^1.3",
@@ -42,6 +43,7 @@
                 {
                     "version": "1.0.0",
                     "revision": "2a1b2c3d4e5f6a7b",
+                    "license": "BSD-3-Clause",
                     "dependencies": {}
                 }
             ]
@@ -53,6 +55,7 @@
                 {
                     "version": "1.3.1",
                     "revision": "3a1b2c3d4e5f6a7b",
+                    "license": "Zlib",
                     "dependencies": {},
                     "features": {
                         "features": {

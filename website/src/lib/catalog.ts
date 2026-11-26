@@ -105,7 +105,18 @@ function packageRecord(name: string, entry: unknown): PackageRecord {
         version: entry.version,
         manifest: versionManifestInfo(entry, context),
         upstream: upstream(entry.upstream, context),
+        license: license(entry.license, context),
     };
+}
+
+function license(value: unknown, context: string): string | null {
+    if (value === undefined) {
+        return null;
+    }
+    if (typeof value !== "string") {
+        throw new Error(`Malformed license in ${context}.`);
+    }
+    return value;
 }
 
 function upstream(value: unknown, context: string): PackageUpstream | null {

@@ -202,9 +202,9 @@ pub struct CatalogRow {
     pub metadata_json: String,
 }
 
-/// The stored entry's blocks the catalog copies verbatim: what the
+/// The stored entry's fields the catalog copies verbatim: what the
 /// website renders of a version.  `upstream` is projected separately.
-const CATALOG_FIELDS: [&str; 3] = ["dependencies", "dev-dependencies", "features"];
+const CATALOG_FIELDS: [&str; 4] = ["dependencies", "dev-dependencies", "features", "license"];
 
 /// Composes `catalog.json`: every package with a verified, non-yanked
 /// version, by canonical name, each with `latest` and its versions in
@@ -338,7 +338,7 @@ mod tests {
     fn catalog_orders_by_precedence_and_exposes_only_the_rendered_fields() {
         let upstream_sum = format!("sha256:{}", "a".repeat(64));
         let full = format!(
-            r#"{{"schema":1,"name":"fmtlib/fmt","version":"1.10.0","dependencies":{{"acme/zlib":"^1.3"}},"dev-dependencies":{{"acme/doctest":{{"version":"^2","features":["x"]}}}},"system-dependencies":{{"pthread":{{"version":"","dependency_kind":"normal","target":"os = \"linux\""}}}},"features":{{"default":["simd"],"simd":[]}},"profiles":{{"dev":{{}}}},"standards":{{"targets":{{}}}},"links":{{"fmt":"fmt"}},"upstream":{{"url":"https://example.com/fmt.tar.gz","checksum":"{upstream_sum}","format":"tar.gz","strip-prefix":"fmt-1.10.0"}},"yanked":false,"checksum":"sha256:{}","source":{{"type":"archive","path":"p","format":"zip"}}}}"#,
+            r#"{{"schema":1,"name":"fmtlib/fmt","version":"1.10.0","dependencies":{{"acme/zlib":"^1.3"}},"dev-dependencies":{{"acme/doctest":{{"version":"^2","features":["x"]}}}},"system-dependencies":{{"pthread":{{"version":"","dependency_kind":"normal","target":"os = \"linux\""}}}},"features":{{"default":["simd"],"simd":[]}},"license":"MIT","profiles":{{"dev":{{}}}},"standards":{{"targets":{{}}}},"links":{{"fmt":"fmt"}},"upstream":{{"url":"https://example.com/fmt.tar.gz","checksum":"{upstream_sum}","format":"tar.gz","strip-prefix":"fmt-1.10.0"}},"yanked":false,"checksum":"sha256:{}","source":{{"type":"archive","path":"p","format":"zip"}}}}"#,
             "b".repeat(64)
         );
         let bare = r#"{"dependencies":{}}"#;
@@ -355,7 +355,7 @@ mod tests {
         // `latest` skips the newer pre-release while a release exists,
         // and falls back to the greatest pre-release when none does.
         let expected = format!(
-            r#"{{"schema":1,"packages":[{{"name":"acme/only-pre","latest":"1.0.0-alpha.10","versions":[{{"version":"1.0.0-alpha.10","revision":"{REV_B}","dependencies":{{}}}},{{"version":"1.0.0-alpha.2","revision":"{REV_A}","dependencies":{{}}}}]}},{{"name":"fmtlib/fmt","latest":"1.10.0","versions":[{{"version":"1.11.0-rc.1","revision":"{REV_A}","dependencies":{{}}}},{{"version":"1.10.0","revision":"{REV_B}","dependencies":{{"acme/zlib":"^1.3"}},"dev-dependencies":{{"acme/doctest":{{"version":"^2","features":["x"]}}}},"features":{{"default":["simd"],"simd":[]}},"upstream":{{"url":"https://example.com/fmt.tar.gz","checksum":"{upstream_sum}"}}}},{{"version":"1.9.0","revision":"{REV_A}","dependencies":{{}}}}]}}]}}"#
+            r#"{{"schema":1,"packages":[{{"name":"acme/only-pre","latest":"1.0.0-alpha.10","versions":[{{"version":"1.0.0-alpha.10","revision":"{REV_B}","dependencies":{{}}}},{{"version":"1.0.0-alpha.2","revision":"{REV_A}","dependencies":{{}}}}]}},{{"name":"fmtlib/fmt","latest":"1.10.0","versions":[{{"version":"1.11.0-rc.1","revision":"{REV_A}","dependencies":{{}}}},{{"version":"1.10.0","revision":"{REV_B}","dependencies":{{"acme/zlib":"^1.3"}},"dev-dependencies":{{"acme/doctest":{{"version":"^2","features":["x"]}}}},"features":{{"default":["simd"],"simd":[]}},"license":"MIT","upstream":{{"url":"https://example.com/fmt.tar.gz","checksum":"{upstream_sum}"}}}},{{"version":"1.9.0","revision":"{REV_A}","dependencies":{{}}}}]}}]}}"#
         );
         assert_eq!(catalog_json(&rows).unwrap(), expected);
         assert_eq!(catalog_json(&[]).unwrap(), r#"{"schema":1,"packages":[]}"#);
