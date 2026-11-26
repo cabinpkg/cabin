@@ -4,13 +4,19 @@
 // is exercised against the same byte layout `cabin package` produces.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { deflateRawSync } from "node:zlib";
+import { deflateRawSync, crc32 as zlibCrc32 } from "node:zlib";
 import {
     buildTree,
+    crc32,
     decodeText,
+    inflatePrefix,
+    isRequestedSpan,
+    MAX_DISPLAY_BYTES,
+    matchesEntry,
     parseCentralDirectory,
     parseContentRange,
     parseEocd,
+    readExactly,
 } from "./sourceArchive.ts";
 
 interface FixtureFile {
@@ -39,6 +45,7 @@ function buildArchive(files: FixtureFile[]): Uint8Array {
         const lv = new DataView(local.buffer);
         lv.setUint32(0, 0x04034b50, true);
         lv.setUint16(8, file.method, true);
+        lv.setUint32(14, zlibCrc32(file.data), true);
         lv.setUint32(18, compressed.length, true);
         lv.setUint32(22, file.data.length, true);
         lv.setUint16(26, name.length, true);
@@ -50,6 +57,7 @@ function buildArchive(files: FixtureFile[]): Uint8Array {
         const cv = new DataView(central.buffer);
         cv.setUint32(0, 0x02014b50, true);
         cv.setUint16(10, file.method, true);
+        cv.setUint32(16, zlibCrc32(file.data), true);
         cv.setUint32(20, compressed.length, true);
         cv.setUint32(24, file.data.length, true);
         cv.setUint16(28, name.length, true);
@@ -100,6 +108,16 @@ test("the EOCD and central directory of a profile archive parse", () => {
         entries.map((entry) => entry.name),
         ["cabin.toml", "src/main.cc", "src/näme.hh"],
     );
+    // Each entry carries the checksum of its own content, and the
+    // viewer's CRC-32 is the zip one.
+    assert.deepEqual(
+        entries.map((entry) => entry.crc32),
+        FILES.map((file) => crc32(file.data)),
+    );
+    assert.equal(crc32(new TextEncoder().encode("123456789")), 0xcbf43926);
+    assert.equal(crc32(new Uint8Array()), 0);
+    const everyByte = Uint8Array.from({ length: 4096 }, (_, at) => at);
+    assert.equal(crc32(everyByte), zlibCrc32(everyByte));
     // The data span computed from central metadata alone must slice the
     // exact bytes the builder wrote: store verbatim, deflate inflatable.
     const stored = entries[0];
@@ -203,6 +221,153 @@ test("content-range headers parse strictly", () => {
     ]) {
         assert.equal(parseContentRange(header), null, String(header));
     }
+});
+
+test("a response must be the span that was asked for", () => {
+    const span = (first: number, last: number, size: number) => ({
+        first,
+        last,
+        size,
+    });
+    // The suffix request: the last bytes, or a shorter archive whole.
+    assert.ok(isRequestedSpan(span(34464, 99999, 100000), null, 65536, null));
+    assert.ok(isRequestedSpan(span(0, 99, 100), null, 65536, null));
+    assert.ok(!isRequestedSpan(span(0, 65535, 100000), null, 65536, null));
+    assert.ok(!isRequestedSpan(span(34464, 99998, 100000), null, 65536, null));
+    // An offset request: exactly those bytes, of the archive already seen.
+    assert.ok(isRequestedSpan(span(10, 14, 100), 10, 5, 100));
+    assert.ok(!isRequestedSpan(span(11, 15, 100), 10, 5, 100));
+    assert.ok(!isRequestedSpan(span(10, 13, 100), 10, 5, 100));
+    assert.ok(!isRequestedSpan(span(10, 14, 101), 10, 5, 100));
+    // The registry accepts no archive over 16 MiB, whatever is asked.
+    const cap = 16 * 1024 * 1024;
+    assert.ok(isRequestedSpan(span(cap - 22, cap - 1, cap), null, 22, null));
+    assert.ok(!isRequestedSpan(span(cap - 21, cap, cap + 1), null, 22, null));
+});
+
+test("a body is read to exactly the length asked for, never past it", async () => {
+    const body = (chunks: number[][], onCancel = () => {}) =>
+        new ReadableStream<Uint8Array>({
+            start(controller) {
+                for (const chunk of chunks) {
+                    controller.enqueue(Uint8Array.from(chunk));
+                }
+                controller.close();
+            },
+            cancel: onCancel,
+        });
+    assert.deepEqual(
+        await readExactly(body([[1, 2], [3]]), 3),
+        Uint8Array.from([1, 2, 3]),
+    );
+    assert.equal(await readExactly(body([[1, 2]]), 3), null);
+    assert.equal(
+        await readExactly(
+            body([
+                [1, 2],
+                [3, 4],
+            ]),
+            3,
+        ),
+        null,
+    );
+    // A body that never ends is dropped at the first byte too many.
+    let pulled = 0;
+    let cancelled = false;
+    const endless = new ReadableStream<Uint8Array>({
+        pull(controller) {
+            pulled += 1;
+            controller.enqueue(new Uint8Array(1024));
+        },
+        cancel() {
+            cancelled = true;
+        },
+    });
+    assert.equal(await readExactly(endless, 4096), null);
+    assert.ok(cancelled);
+    assert.ok(pulled < 16);
+});
+
+test("shown content must be the entry the directory declares", () => {
+    const entry = (data: Uint8Array, usize = data.length) => ({
+        name: "f",
+        method: 8,
+        csize: 1,
+        usize,
+        crc32: crc32(data),
+        dataStart: 0,
+    });
+    const whole = new TextEncoder().encode("int x;\n");
+    assert.ok(matchesEntry(entry(whole), whole));
+    assert.ok(matchesEntry(entry(new Uint8Array()), new Uint8Array()));
+    assert.ok(!matchesEntry({ ...entry(whole), crc32: 1 }, whole));
+    // Content shorter than declared is not a truncated view of it.
+    assert.ok(!matchesEntry(entry(whole, 2 * MAX_DISPLAY_BYTES), whole));
+    // A cut view is a prefix: its entry must be declared past the cap.
+    const cut = new Uint8Array(MAX_DISPLAY_BYTES + 1);
+    assert.ok(matchesEntry(entry(whole, 2 * MAX_DISPLAY_BYTES), cut));
+    assert.ok(!matchesEntry(entry(whole, 4), cut));
+});
+
+test("a name keeps a leading U+FEFF, so it cannot pass for another file", () => {
+    const archive = buildArchive([
+        fixtureFile("cabin.toml", "[package]\n", 0),
+        fixtureFile("\uFEFFcabin.toml", "decoy\n", 0),
+    ]);
+    const layout = parseEocd(
+        archive.subarray(archive.length - 22),
+        archive.length,
+    );
+    const cd = archive.subarray(
+        layout.cdOffset,
+        layout.cdOffset + layout.cdSize,
+    );
+    assert.deepEqual(
+        parseCentralDirectory(cd, layout).map((entry) => entry.name),
+        ["cabin.toml", "\uFEFFcabin.toml"],
+    );
+});
+
+test("inflation returns a whole stream and stops soon after the cap", async () => {
+    // Poorly compressible, so its stream spans many input slices.
+    let seed = 1;
+    const noisy = Uint8Array.from({ length: 8192 }, () => {
+        seed = (Math.imul(seed, 1664525) + 1013904223) | 0;
+        return seed >>> 24;
+    });
+    const stream = new Uint8Array(deflateRawSync(noisy));
+    assert.ok(stream.length > 4096);
+    assert.deepEqual(await inflatePrefix(stream, MAX_DISPLAY_BYTES), noisy);
+    const bomb = new Uint8Array(
+        deflateRawSync(new Uint8Array(32 * 1024 * 1024)),
+    );
+    // What bounds the inflater's work per step is the size of each
+    // input chunk it is handed, so that is watched at its writable side.
+    const Inflater = globalThis.DecompressionStream;
+    let largestInput = 0;
+    globalThis.DecompressionStream = class extends Inflater {
+        override get writable() {
+            const writer = super.writable.getWriter();
+            return new WritableStream<BufferSource>({
+                write(chunk) {
+                    largestInput = Math.max(largestInput, chunk.byteLength);
+                    return writer.write(chunk);
+                },
+                close: () => writer.close(),
+                abort: (reason) => writer.abort(reason),
+            });
+        }
+    };
+    let prefix: Uint8Array;
+    try {
+        prefix = await inflatePrefix(bomb, MAX_DISPLAY_BYTES);
+    } finally {
+        globalThis.DecompressionStream = Inflater;
+    }
+    assert.ok(prefix.length > MAX_DISPLAY_BYTES);
+    assert.ok(prefix.length < 4 * MAX_DISPLAY_BYTES);
+    assert.ok(largestInput > 0 && largestInput <= 1024);
+    await assert.rejects(inflatePrefix(Uint8Array.from([0xff, 0xff]), 16));
 });
 
 test("text decoding refuses binaries and tolerates truncated UTF-8", () => {

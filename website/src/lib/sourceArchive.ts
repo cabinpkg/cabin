@@ -24,6 +24,11 @@ const LOCAL_HEADER_SIZE = 30;
 // fetched in chunks of this size.
 export const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
 
+// The registry accepts no larger archive (api/src/quota.rs
+// max_archive_bytes), so a response claiming a larger total is not one
+// of its archives and nothing more of it is read.
+export const MAX_ARCHIVE_BYTES = 16 * 1024 * 1024;
+
 // The suffix length of the first request: covers the EOCD (the last 22
 // bytes; zip64 and comments are banned) and, for typical packages, the
 // whole central directory in the same round trip.
@@ -50,6 +55,8 @@ export interface ArchiveEntry {
     csize: number;
     /** Uncompressed size. */
     usize: number;
+    /** CRC-32 of the uncompressed bytes. */
+    crc32: number;
     /** Archive offset of the entry's first compressed byte. */
     dataStart: number;
 }
@@ -95,7 +102,9 @@ export function parseCentralDirectory(
         throw new Error("the central directory is incomplete");
     }
     const v = view(cd);
-    const decoder = new TextDecoder("utf-8", { fatal: true });
+    // A name is its exact code points: a leading U+FEFF is part of it,
+    // not a byte-order mark to drop, or two entries would share a name.
+    const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
     const entries: ArchiveEntry[] = [];
     let at = 0;
     while (at < cd.length) {
@@ -106,6 +115,7 @@ export function parseCentralDirectory(
             throw new Error("the central directory is malformed");
         }
         const method = v.getUint16(at + 10, true);
+        const crc32 = v.getUint32(at + 16, true);
         const csize = v.getUint32(at + 20, true);
         const usize = v.getUint32(at + 24, true);
         const nameLength = v.getUint16(at + 28, true);
@@ -130,6 +140,7 @@ export function parseCentralDirectory(
             method,
             csize,
             usize,
+            crc32,
             dataStart,
         });
         at = nameEnd + extraLength + commentLength;
@@ -193,6 +204,130 @@ export function parseContentRange(
         return null;
     }
     return { first, last, size };
+}
+
+// Whether a 206's span is the one that was asked for: `length` bytes at
+// `first`, or - `first` null, the suffix request - the archive's last
+// `length` bytes (all of it when it is shorter). `size` is the archive
+// size an earlier response reported, null before the first: every
+// response must describe the same archive, and one within the cap.
+export function isRequestedSpan(
+    span: { first: number; last: number; size: number },
+    first: number | null,
+    length: number,
+    size: number | null,
+): boolean {
+    if (
+        span.size > MAX_ARCHIVE_BYTES ||
+        (size !== null && span.size !== size)
+    ) {
+        return false;
+    }
+    const from = first ?? Math.max(0, span.size - length);
+    const to = first === null ? span.size - 1 : first + length - 1;
+    return span.first === from && span.last === to;
+}
+
+// Reads exactly `length` bytes of a response body: null when it ends
+// short or runs over. An overrunning body is cancelled at once, so an
+// origin cannot make the page buffer more than was asked for.
+export async function readExactly(
+    body: ReadableStream<Uint8Array>,
+    length: number,
+): Promise<Uint8Array<ArrayBuffer> | null> {
+    const bytes = new Uint8Array(length);
+    const reader = body.getReader();
+    let filled = 0;
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) {
+            return filled === length ? bytes : null;
+        }
+        if (filled + value.length > length) {
+            await reader.cancel();
+            return null;
+        }
+        bytes.set(value, filled);
+        filled += value.length;
+    }
+}
+
+const CRC_TABLE = Uint32Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let bit = 0; bit < 8; bit += 1) {
+        c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    }
+    return c;
+});
+
+// The zip checksum (CRC-32, reflected polynomial 0xEDB88320) of `bytes`.
+export function crc32(bytes: Uint8Array): number {
+    let crc = 0xffffffff;
+    for (const byte of bytes) {
+        crc = CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+    }
+    return (crc ^ 0xffffffff) >>> 0;
+}
+
+// An inflater turns each input chunk into output before a reader can
+// stop it, and deflate expands up to about a thousand times, so the
+// compressed bytes are fed in slices this small.
+const INFLATE_INPUT_BYTES = 1024;
+
+// Decompresses a deflate-raw span, stopping shortly after `maxBytes`
+// of output: enough to know the content was truncated without ever
+// materializing a decompression bomb.
+export async function inflatePrefix(
+    compressed: Uint8Array<ArrayBuffer>,
+    maxBytes: number,
+): Promise<Uint8Array> {
+    let at = 0;
+    const input = new ReadableStream<Uint8Array<ArrayBuffer>>({
+        pull(controller) {
+            if (at < compressed.length) {
+                controller.enqueue(
+                    compressed.subarray(at, at + INFLATE_INPUT_BYTES),
+                );
+                at += INFLATE_INPUT_BYTES;
+            } else {
+                controller.close();
+            }
+        },
+    });
+    const reader = input
+        .pipeThrough(new DecompressionStream("deflate-raw"))
+        .getReader();
+    const parts: Uint8Array[] = [];
+    let total = 0;
+    while (total <= maxBytes) {
+        const { done, value } = await reader.read();
+        if (done) {
+            break;
+        }
+        parts.push(value);
+        total += value.length;
+    }
+    if (total > maxBytes) {
+        await reader.cancel();
+    }
+    const bytes = new Uint8Array(total);
+    let filled = 0;
+    for (const part of parts) {
+        bytes.set(part, filled);
+        filled += part.length;
+    }
+    return bytes;
+}
+
+// Whether `bytes` - an entry's decoded content, cut somewhere past the
+// display cap when it is longer - is what the central directory
+// declares. A whole entry must have the declared size and checksum. A
+// cut one is only a prefix, which no checksum covers, so it must merely
+// be declared longer than the cap.
+export function matchesEntry(entry: ArchiveEntry, bytes: Uint8Array): boolean {
+    return bytes.length > MAX_DISPLAY_BYTES
+        ? entry.usize > MAX_DISPLAY_BYTES
+        : bytes.length === entry.usize && crc32(bytes) === entry.crc32;
 }
 
 // Decodes displayable text: UTF-8 with no NUL byte. `truncated` content
