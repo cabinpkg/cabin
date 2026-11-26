@@ -956,6 +956,19 @@ mod tests {
         };
         assert_eq!(check_daily_uploads(MIB, &republish, &quotas), Ok(()));
         assert_eq!(check_pending_uploads(&republish, &quotas), Ok(()));
+        // Its own day is bounded all the same.
+        let spent = UploadUsage {
+            user_uploads_today: 1_000,
+            ..no_usage()
+        };
+        assert_eq!(
+            check_daily_uploads(MIB, &spent, &quotas),
+            Err(UploadDenial::Daily {
+                kind: LimitKind::UserCount,
+                limit: 1_000,
+                used: 1_000
+            })
+        );
     }
 
     #[test]

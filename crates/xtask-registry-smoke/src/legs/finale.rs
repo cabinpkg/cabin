@@ -25,9 +25,9 @@ use crate::bytes::{frame, replace_all, retarget_hash, revision_of, sha256_hex};
 use crate::context::{Base, Smoke};
 use crate::legs::anonymous::uniform_401_with;
 use crate::legs::session;
-use crate::servers::{DevServers, d1, d1_quiet, stored_upload};
+use crate::servers::{DevServers, d1, d1_quiet, d1_rows, stored_upload};
 use crate::step;
-use crate::text::{capture, contains, grep_anywhere, grep_lines, read, write};
+use crate::text::{capture, contains, grep_anywhere, grep_lines, read, text, write};
 
 const POLLS: u32 = 20;
 const HALF_SECOND: Duration = Duration::from_millis(500);
@@ -174,6 +174,7 @@ pub fn run(smoke: &mut Smoke, inputs: &mut FinaleInputs<'_>) -> Result<()> {
     alert_mail(smoke)?;
     allowance_alert(smoke)?;
     admin_cron(smoke)?;
+    upload_limits(smoke, inputs)?;
     crate::legs::download_logs::run(smoke, inputs.scope, inputs.name, inputs.work)?;
     zip_profile(smoke, inputs)?;
     driver_pass(smoke, inputs)?;
@@ -292,6 +293,275 @@ fn allowance_alert(smoke: &mut Smoke) -> Result<()> {
          WHERE quota_class = 'operator' AND uploads >= 800; \
          DELETE FROM alerts WHERE kind IN ('shared_uploads', 'operator_uploads');",
     )
+}
+
+/// The versions the upload-limit leg publishes, and one that is only
+/// ever refused.  The first is the day's thirtieth upload; the rest
+/// fill the publisher's pending slots.
+const LIMIT_VERSIONS: [&str; 3] = ["0.14.0", "0.15.0", "0.16.0"];
+const REFUSED_VERSION: &str = "0.17.0";
+
+/// Today's allowance rows of every user and class, in one value to
+/// compare.
+const DAY_ROWS: &str = "SELECT \
+    (SELECT json_group_array(json_array(user_id, bytes, uploads)) \
+     FROM user_daily_upload_usage WHERE usage_date = date('now')) AS user_rows, \
+    (SELECT json_group_array(json_array(quota_class, bytes, uploads)) \
+     FROM shared_daily_upload_usage WHERE usage_date = date('now')) AS shared_rows";
+
+/// The upload allowances through the running Worker: each is seeded
+/// at its boundary by SQL, so no large body is ever sent.  The day's
+/// two allowance rows are put back as they were at the end, and so are
+/// the mails the yank cycle owes, which `nothing_else_is_owed` counts.
+#[allow(clippy::too_many_lines)] // one seeded sequence, a step per allowance
+fn upload_limits(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
+    let one = |sql: &str| -> Result<Option<(u64, u64)>> {
+        Ok(d1_rows(sql)?.first().map(|row| {
+            (
+                row["bytes"].as_u64().unwrap_or_default(),
+                row["uploads"].as_u64().unwrap_or_default(),
+            )
+        }))
+    };
+    let user_today = "SELECT bytes, uploads FROM user_daily_upload_usage \
+         WHERE usage_date = date('now') AND user_id = 2";
+    let original_user = one(user_today)?;
+    let original_shared = one("SELECT bytes, uploads FROM shared_daily_upload_usage \
+         WHERE usage_date = date('now') AND quota_class = 'default'")?;
+    // Each puts today's row of the seeded publisher, or of the default
+    // class, as given; `None` leaves none.
+    let user_row = |row: Option<(u64, u64)>| {
+        let insert = row.map_or_else(String::new, |(bytes, uploads)| {
+            format!(
+                "INSERT INTO user_daily_upload_usage VALUES (date('now'), 2, {bytes}, {uploads});"
+            )
+        });
+        format!(
+            "DELETE FROM user_daily_upload_usage WHERE usage_date = date('now') AND user_id = 2; {insert}"
+        )
+    };
+    let shared_row = |row: Option<(u64, u64)>| {
+        let insert = row.map_or_else(String::new, |(bytes, uploads)| {
+            format!("INSERT INTO shared_daily_upload_usage VALUES (date('now'), 'default', {bytes}, {uploads});")
+        });
+        format!(
+            "DELETE FROM shared_daily_upload_usage \
+             WHERE usage_date = date('now') AND quota_class = 'default'; {insert}"
+        )
+    };
+    let pending_count = || -> Result<u64> {
+        let rows = d1_rows(
+            "SELECT COUNT(*) AS n FROM revisions WHERE published_by = 2 AND verification = 'pending'",
+        )?;
+        rows[0]["n"].as_u64().context("the pending count")
+    };
+    let held = pending_count()?;
+    // Two free slots: with one, the bodyless preflight of the byte
+    // step would answer for the pending limit first.
+    if held > 1 {
+        bail!(
+            "the publisher already holds {held} pending uploads, the upload-limit leg needs two free slots"
+        );
+    }
+    let publish = |smoke: &mut Smoke, version: &str, expected: u16| -> Result<()> {
+        d1_quiet(BURST_RESET)?;
+        let zip = min_zip(&format!("limit{version}"));
+        let body = publish_payload(inputs, version, &zip);
+        smoke.publish(&publish_route(inputs, version), &body, &[expected])?;
+        Ok(())
+    };
+
+    step(
+        "the per-user daily allowance counts an upload through either credential: the thirtieth lands on it, the next is refused",
+    );
+    // One upload left of 30: admitted through the trusted-publishing
+    // token, refused through the session token of the same user.
+    d1(&user_row(Some((1024, 29))))?;
+    // Refused before admission: a malformed frame draws nothing.
+    let rows = d1_rows(DAY_ROWS)?;
+    d1_quiet(BURST_RESET)?;
+    smoke.publish(
+        &publish_route(inputs, REFUSED_VERSION),
+        b"not a frame",
+        &[400],
+    )?;
+    if d1_rows(DAY_ROWS)? != rows {
+        bail!("a malformed publish changed an allowance row");
+    }
+    smoke.as_ci_publisher();
+    publish(smoke, LIMIT_VERSIONS[0], 201)?;
+    smoke.expect_body(r#""verification":"pending""#)?;
+    smoke.as_publisher();
+    let charged = one(user_today)?;
+    if charged.map(|(_, uploads)| uploads) != Some(30) {
+        bail!("the trusted-publishing upload was not charged to the user's row: {charged:?}");
+    }
+    let rows = d1_rows(DAY_ROWS)?;
+    publish(smoke, REFUSED_VERSION, 429)?;
+    daily_refusal(smoke, "user_count", 30, 30)?;
+    if d1_rows(DAY_ROWS)? != rows {
+        bail!("a daily-limit refusal changed an allowance row");
+    }
+
+    step("the per-user daily byte allowance refuses an archive that no longer fits");
+    d1(&user_row(Some((256 * 1024 * 1024 - 1, 0))))?;
+    let rows = d1_rows(DAY_ROWS)?;
+    publish(smoke, REFUSED_VERSION, 429)?;
+    daily_refusal(
+        smoke,
+        "user_bytes",
+        256 * 1024 * 1024,
+        256 * 1024 * 1024 - 1,
+    )?;
+    if d1_rows(DAY_ROWS)? != rows {
+        bail!("a byte-limit refusal changed an allowance row");
+    }
+
+    step("the ordinary users' shared daily allowance refuses a new upload once spent");
+    d1(&format!(
+        "{} {}",
+        user_row(None),
+        shared_row(Some((0, 500)))
+    ))?;
+    let rows = d1_rows(DAY_ROWS)?;
+    publish(smoke, REFUSED_VERSION, 429)?;
+    daily_refusal(smoke, "shared_count", 500, 500)?;
+    if d1_rows(DAY_ROWS)? != rows {
+        bail!("a shared-limit refusal changed an allowance row");
+    }
+
+    step("the fourth unverified upload is refused with the pending code and no Retry-After");
+    d1(&format!(
+        "{} {}",
+        user_row(None),
+        shared_row(original_shared)
+    ))?;
+    let mut next = 1;
+    while pending_count()? < 3 {
+        publish(smoke, LIMIT_VERSIONS[next], 201)?;
+        next += 1;
+    }
+    let rows = d1_rows(DAY_ROWS)?;
+    publish(smoke, REFUSED_VERSION, 429)?;
+    let error = limit_error(smoke, "pending_limit_exceeded")?;
+    if error["limit"] != 3 || error["used"] != 3 || error.get("reset_at").is_some() {
+        bail!("the pending refusal's fields are wrong: {error}");
+    }
+    if !grep_lines(&text(&smoke.headers), "retry-after:").is_empty() {
+        bail!(
+            "the pending refusal carries a Retry-After: {}",
+            capture(&smoke.headers)
+        );
+    }
+    if d1_rows(DAY_ROWS)? != rows {
+        bail!("a pending-limit refusal changed an allowance row");
+    }
+
+    step("accepted work continues while the shared daily allowance refuses new uploads");
+    d1(&shared_row(Some((0, 500))))?;
+    let rows = d1_rows(DAY_ROWS)?;
+    smoke.as_verifier();
+    smoke.wcheck(PENDING_LISTING, &[200])?;
+    let listing = smoke.body.clone();
+    for version in &LIMIT_VERSIONS[..next] {
+        verify_version(
+            smoke,
+            inputs,
+            &listing,
+            version,
+            &format!("entry-limit-{version}.json"),
+        )?;
+    }
+    smoke.as_publisher();
+    let left = pending_count()?;
+    if left != held {
+        bail!("the verdicts left the publisher's pending uploads at {left}, expected {held}");
+    }
+    let version = LIMIT_VERSIONS[0];
+    let zip = min_zip(&format!("limit{version}"));
+    smoke.check(
+        &format!("/packages/{}/{}.json", inputs.scope, inputs.name),
+        &[200],
+    )?;
+    smoke.expect_body(&format!(r#""{version}":{{"#))?;
+    smoke.check(&artifact_route(inputs, version, &zip), &[200])?;
+    if smoke.body != zip {
+        bail!("the accepted upload's download differs from what was published");
+    }
+    let yank = format!("{}/yank", publish_route(inputs, version));
+    smoke.wrequest("PATCH", &yank, br#"{"yanked":true}"#, &[200])?;
+    smoke.expect_body(r#""yanked":true"#)?;
+    smoke.wrequest("PATCH", &yank, br#"{"yanked":false}"#, &[200])?;
+    smoke.expect_body(r#""yanked":false"#)?;
+    publish(smoke, REFUSED_VERSION, 429)?;
+    daily_refusal(smoke, "shared_count", 500, 500)?;
+    if d1_rows(DAY_ROWS)? != rows {
+        bail!("accepted work, or the refusal after it, changed an allowance row");
+    }
+
+    // Put back what the leg seeded and the mails it caused.
+    d1(&format!(
+        "DELETE FROM notifications WHERE kind IN ('version_yanked', 'version_unyanked') \
+           AND detail ->> '$.version' = '{version}'; {} {}",
+        user_row(original_user),
+        shared_row(original_shared),
+    ))
+}
+
+/// A refusal's one error object, which must carry `code`.
+fn limit_error(smoke: &Smoke, code: &str) -> Result<Value> {
+    let body: Value = serde_json::from_slice(&smoke.body).context("parse the refusal")?;
+    let error = body["errors"][0].clone();
+    if error["code"] != code {
+        bail!("the refusal's code is not {code}: {body}");
+    }
+    Ok(error)
+}
+
+/// A `daily_upload_limit_exceeded` refusal of `kind`, whose
+/// `Retry-After` counts down to the `reset_at` it names, the next UTC
+/// midnight.
+fn daily_refusal(smoke: &Smoke, kind: &str, limit: u64, used: u64) -> Result<()> {
+    // Read before the slow D1 call below, so the comparison with
+    // `Retry-After` spans the request alone.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
+    let error = limit_error(smoke, "daily_upload_limit_exceeded")?;
+    if error["limit_kind"] != kind || error["limit"] != limit || error["used"] != used {
+        bail!("the daily refusal's fields are not {kind} {used}/{limit}: {error}");
+    }
+    let midnight = d1_rows("SELECT date('now', '+1 day') || 'T00:00:00Z' AS at")?;
+    if error["reset_at"] != midnight[0]["at"] {
+        bail!(
+            "reset_at is not the next UTC midnight {}: {error}",
+            midnight[0]["at"]
+        );
+    }
+    let block = text(&smoke.headers);
+    let [line] = grep_lines(&block, "retry-after:")[..] else {
+        bail!(
+            "the daily refusal has no single Retry-After: {}",
+            capture(&smoke.headers)
+        );
+    };
+    let secs: u64 = line
+        .split_once(':')
+        .map_or("", |(_, value)| value.trim())
+        .parse()
+        .with_context(|| format!("Retry-After is not a number of seconds: {line}"))?;
+    let until = 86_400 - now % 86_400;
+    if secs.abs_diff(until) > 5 {
+        bail!(
+            "Retry-After {secs} is not the {until} seconds to {}",
+            midnight[0]["at"]
+        );
+    }
+    println!(
+        "    {kind} {used}/{limit}: Retry-After {secs}s, reset_at {}",
+        error["reset_at"]
+    );
+    Ok(())
 }
 
 /// The cron's state reads with the verify scope alone, and shows the

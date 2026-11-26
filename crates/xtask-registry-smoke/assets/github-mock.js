@@ -97,6 +97,10 @@ const signinUsers = () => {
     "existing-young": { id: 0, login: "Smoke", created_at: young },
     "fresh-young": { id: 3, login: "fresh", created_at: young },
     "fresh-old": { id: 4, login: "veteran", created_at: "2008-01-14T04:33:35Z" },
+    // An allowlisted new account with no creation time, and an old one
+    // the allowlist does not admit.
+    "fresh-undated": { id: 3, login: "fresh" },
+    "fresh-unlisted": { id: 5, login: "unlisted", created_at: "2008-01-14T04:33:35Z" },
   };
 };
 // GET /user/emails, which a sign-in and a session mint read for the

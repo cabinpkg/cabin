@@ -1278,3 +1278,73 @@ fn the_sweep_times_out_stored_uploads_and_forgets_settled_operations() {
         ["Text(\"t4\")"]
     );
 }
+
+/// A revision that passed verification but is not archived yet is no
+/// longer awaiting verification: it frees the pending slot it held.
+#[test]
+fn a_verified_revision_not_yet_archived_frees_its_pending_slot() {
+    let conn = seeded();
+    let limits = Limits {
+        pending: 1.0,
+        ..Limits::of("default")
+    };
+    let op = Gate::New.admissible();
+    assert_refused(Gate::New, &conn, &op, &limits, "p1 is pending");
+    conn.execute_batch(&format!(
+        "UPDATE revisions SET verification = 'verified', verified_at = '{NOW}' \
+         WHERE revision = 'p1'"
+    ))
+    .expect("verify p1");
+    assert_eq!(usage(&conn, &op).0.pending, 0);
+    assert_admitted(Gate::New, &conn, &op, &limits, "p1 is verified");
+}
+
+/// A user's daily row is the user's, whatever class charges it: an
+/// upload under another class adds to it and draws on that class's
+/// shared allowance, and the class the user returns to counts the whole
+/// day.
+#[test]
+fn a_users_day_carries_across_a_class_change() {
+    let conn = seeded();
+    let promoted = upload(2.0, "operator", "promoted", 5.0, NOW);
+    assert_admitted(
+        Gate::New,
+        &conn,
+        &promoted,
+        &Limits::of("operator"),
+        "promoted",
+    );
+    assert_eq!(
+        rows(
+            &conn,
+            "SELECT bytes, uploads FROM user_daily_upload_usage WHERE user_id = 2 UNION ALL \
+             SELECT bytes, uploads FROM shared_daily_upload_usage ORDER BY 1"
+        ),
+        [
+            "Integer(5) | Integer(1)",
+            "Integer(30) | Integer(3)",
+            "Integer(35) | Integer(4)"
+        ]
+    );
+
+    // Back under the default class with a day's count only the
+    // operator class allows: the default class refuses on it.
+    conn.execute_batch("UPDATE user_daily_upload_usage SET uploads = 40")
+        .expect("a day of operator-class uploads");
+    let demoted = upload(2.0, "default", "demoted", 1.0, NOW);
+    assert_refused(
+        Gate::New,
+        &conn,
+        &demoted,
+        &Limits::of("default"),
+        "demoted",
+    );
+    assert!(matches!(
+        preflight(&conn, &demoted),
+        Err(quota::UploadDenial::Daily {
+            kind: quota::LimitKind::UserCount,
+            used: 40,
+            ..
+        })
+    ));
+}
