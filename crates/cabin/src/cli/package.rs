@@ -330,7 +330,7 @@ struct RemotePublishReport {
 /// baselines, and publish lints all complete before the first upload,
 /// so a validation failure anywhere in the batch publishes nothing -
 /// and, on the trusted-publishing leg, the minted token is spent only
-/// on the registry round-trips (the authenticated baseline reads and
+/// on the registry round-trips (the baseline reads and
 /// the uploads), never on the staging work that precedes the
 /// exchange.  An UPLOAD failure necessarily leaves the earlier
 /// members live (the registry has no cross-package transaction).
@@ -338,8 +338,8 @@ struct RemotePublishReport {
 /// exchanges exactly one OIDC token however many packages it
 /// publishes.
 ///
-/// The registry's `config.json` and the lint baselines ride the
-/// authenticated sparse-HTTP read path; the uploads themselves go
+/// The lint baselines ride the sparse-HTTP read path, authenticated
+/// when the registry declares `auth-required`; the uploads themselves go
 /// through `cabin-registry-api` with the same credential, paced on
 /// the registry's `429` answers as
 /// [`publish_with_rate_limit_pacing`] describes.

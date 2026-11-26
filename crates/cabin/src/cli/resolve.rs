@@ -1125,10 +1125,11 @@ fn open_local_index(path: &Path) -> Result<cabin_index::FileIndex> {
 /// build pipeline can reuse the connection for downloads; the resolve
 /// pipeline discards it.
 ///
-/// The client carries the stored credential (env override or
-/// `credentials.toml`) for the index origin, so `config.json`,
-/// package metadata, and artifact downloads all authenticate;
-/// without a credential the client is tokenless.
+/// On a registry that declares `auth-required` the client carries
+/// the stored credential (env override or `credentials.toml`) for
+/// the index origin, so package metadata and artifact downloads
+/// authenticate; on any other registry, and without a credential,
+/// the client is tokenless.
 ///
 /// `user_chosen` reports how the caller arrived at `url`; it gates
 /// the origin-key-less `CABIN_REGISTRY_TOKEN` override, see
@@ -1143,7 +1144,8 @@ fn open_http_index(
     {
         client = client.with_auth(auth);
     }
-    let http_index = cabin_index_http::HttpIndex::open(url, client.clone())?;
+    let http_index = cabin_index_http::HttpIndex::open(url, client)?;
+    let client = http_index.client().clone();
     Ok((http_index, client))
 }
 

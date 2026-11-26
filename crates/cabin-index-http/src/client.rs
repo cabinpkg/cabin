@@ -149,6 +149,11 @@ impl HttpClient {
         self
     }
 
+    /// Detach the credential, leaving a tokenless client.
+    pub(crate) fn take_auth(&mut self) -> Option<RegistryAuth> {
+        self.auth.take()
+    }
+
     /// `GET` `url` and return the raw response body. `package` is
     /// embedded into errors so HTTP failures surface a useful
     /// caller-provided context.

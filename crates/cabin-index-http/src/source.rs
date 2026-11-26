@@ -94,6 +94,11 @@ impl HttpIndex {
     /// `<base_url>/config.json`.  The base URL is normalized so a
     /// trailing slash is optional.
     ///
+    /// `config.json` is public by the protocol and is read without
+    /// `client`'s credential; the index keeps the credential for its
+    /// later requests only when the registry declares `auth-required`,
+    /// so a public registry's index origin never receives it.
+    ///
     /// # Errors
     /// Returns [`IndexHttpError::InvalidUrl`] when `base_url` is
     /// malformed, uses a non-`http(s)` scheme, uses plain `http` for a
@@ -104,7 +109,7 @@ impl HttpIndex {
     /// `auth-required`/`api`/`dl` fields fail validation.  Propagates the
     /// fetch errors of [`HttpClient::get_bytes`].
     #[tracing::instrument(name = "open_http_index", level = "info", skip_all)]
-    pub fn open(base_url: &str, client: HttpClient) -> Result<Self, IndexHttpError> {
+    pub fn open(base_url: &str, mut client: HttpClient) -> Result<Self, IndexHttpError> {
         let base = parse_base_url(base_url)?;
         let config_url = base
             .join("config.json")
@@ -113,6 +118,7 @@ impl HttpIndex {
                 message: format!("cannot append config.json: {err}"),
             })?;
 
+        let auth = client.take_auth();
         let body = client.get_bytes(config_url.as_str(), "config")?;
         let raw: RawRegistryConfig =
             serde_json::from_slice(&body).map_err(|err| IndexHttpError::InvalidConfig {
@@ -120,6 +126,9 @@ impl HttpIndex {
                 message: format!("config.json is not valid JSON: {err}"),
             })?;
         let config = HttpIndexConfig::from_raw(raw, &base)?;
+        if let Some(auth) = auth.filter(|_| config.auth_required) {
+            client = client.with_auth(auth);
+        }
 
         let packages_base = base.join(&format!("{}/", config.packages)).map_err(|err| {
             IndexHttpError::InvalidConfig {
@@ -144,6 +153,13 @@ impl HttpIndex {
             download,
             client,
         })
+    }
+
+    /// The client the index reads through, for the downloads that
+    /// follow: its credential is the one [`HttpIndex::open`] kept.
+    #[must_use]
+    pub fn client(&self) -> &HttpClient {
+        &self.client
     }
 
     /// The registry's `api` base URL from `config.json`, when
@@ -1316,6 +1332,8 @@ mod tests {
         server: std::sync::Arc<tiny_http::Server>,
         thread: Option<std::thread::JoinHandle<()>>,
         url: String,
+        /// Paths of the requests that carried `Authorization`.
+        credentialed: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
     }
 
     impl StaticRegistry {
@@ -1327,9 +1345,14 @@ mod tests {
             let url = format!("http://{addr}/");
             let server_for_thread = std::sync::Arc::clone(&server);
             let package_path = format!("/packages/{package_name}.json");
+            let credentialed = std::sync::Arc::<std::sync::Mutex<Vec<String>>>::default();
+            let credentialed_in_thread = std::sync::Arc::clone(&credentialed);
             let thread = std::thread::spawn(move || {
                 while let Ok(req) = server_for_thread.recv() {
                     let path = req.url().to_string();
+                    if req.headers().iter().any(|h| h.field.equiv("Authorization")) {
+                        credentialed_in_thread.lock().unwrap().push(path.clone());
+                    }
                     if path == "/config.json" {
                         let _ = req.respond(tiny_http::Response::from_string(config));
                     } else if path == package_path {
@@ -1343,6 +1366,7 @@ mod tests {
                 server,
                 thread: Some(thread),
                 url,
+                credentialed,
             }
         }
     }
@@ -1582,12 +1606,45 @@ mod tests {
         assert_eq!(requests.into_inner(), PARALLEL_FETCHES);
     }
 
+    /// A registry that does not declare `auth-required` is sent no
+    /// credential: not on `config.json`, not on package metadata, and
+    /// not through the client the downloads reuse.
+    #[test]
+    fn a_public_registry_is_sent_no_credential() {
+        use crate::client::RegistryAuth;
+
+        const CONFIG: &str = r#"{
+            "schema": 2,
+            "kind": "file-registry",
+            "packages": "packages",
+            "archives": "archives",
+            "api": "https://registry.example.com"
+        }"#;
+        const PACKAGE: &str = r#"{ "schema": 1, "name": "fmt", "versions": {} }"#;
+        let server = StaticRegistry::start(CONFIG, "fmt", PACKAGE);
+        let auth = RegistryAuth::for_index_url(
+            &server.url,
+            cabin_credentials::Token::parse("cabin_sourceTest1234").unwrap(),
+        )
+        .unwrap();
+
+        let index = HttpIndex::open(&server.url, HttpClient::new().with_auth(auth)).unwrap();
+        index
+            .fetch_package(&PackageName::new("fmt").unwrap())
+            .unwrap();
+        index
+            .client()
+            .get_bytes(&format!("{}packages/fmt.json", server.url), "fmt")
+            .unwrap();
+
+        assert_eq!(*server.credentialed.lock().unwrap(), Vec::<String>::new());
+    }
+
     /// End-to-end auth flow over the real `open` / `fetch_package`
     /// path: an `auth-required` registry serves `config.json` to
     /// anyone (the protocol's login-bootstrap rule), 401s every other
-    /// tokenless request with the login advice, and the client still
-    /// attaches its credential to every request - `config.json`
-    /// included.
+    /// tokenless request with the login advice, and the client
+    /// attaches its credential to every request but `config.json`.
     #[test]
     fn config_json_is_public_and_every_other_route_requires_the_credential() {
         use crate::client::RegistryAuth;
@@ -1657,9 +1714,8 @@ mod tests {
             "expected AuthRequired, got {err:?}"
         );
 
-        // With the credential both requests succeed, and the client
-        // attached the token to `config.json` too even though the
-        // route does not demand it.
+        // With the credential both requests succeed, and `config.json`
+        // was still read without it.
         let auth =
             RegistryAuth::for_index_url(&base_url, cabin_credentials::Token::parse(TOKEN).unwrap())
                 .unwrap();
@@ -1669,8 +1725,8 @@ mod tests {
             .unwrap();
         assert!(entry.versions.is_empty());
         assert!(
-            config_saw_bearer.load(std::sync::atomic::Ordering::SeqCst),
-            "the authenticated client must attach its token to config.json as well"
+            !config_saw_bearer.load(std::sync::atomic::Ordering::SeqCst),
+            "config.json is read before the registry has asked for the credential"
         );
 
         server.unblock();
