@@ -241,7 +241,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
                 );
             }
             // Each page must carry its own package's install snippet,
-            // not just any snippet.
+            // not just any snippet, and link its own version's files.
             const expectations = packages.flatMap(
                 ({ name, latest, versions }) => [
                     {
@@ -250,15 +250,17 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
                         license: versions.find(
                             ({ version }) => version === latest,
                         )?.license,
+                        files: `/packages/${name}/${latest}/source`,
                     },
                     ...versions.map(({ version, license }) => ({
                         segments: ["packages", ...name.split("/"), version],
                         snippet: `"${name}" = "=${version}"`,
                         license,
+                        files: `/packages/${name}/${version}/source`,
                     })),
                 ],
             );
-            for (const { segments, snippet, license } of expectations) {
+            for (const { segments, snippet, license, files } of expectations) {
                 const relativePath = path.join(...segments, "index.html");
                 let detail;
                 try {
@@ -291,6 +293,51 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
                             true,
                     "ships the package's downloads hidden (JS reveals them)",
                 );
+                detail.expect(
+                    detail.content.links.some(
+                        (link) =>
+                            link.main &&
+                            link.href === files &&
+                            link.text.length > 0,
+                    ),
+                    "links this version's source viewer",
+                );
+            }
+            // Each version's viewer is JS-only by design: it ships its
+            // frame hidden, and a script-less visitor keeps the way
+            // back to the version's page.
+            for (const { name, versions } of packages) {
+                for (const { version } of versions) {
+                    const versionHref = `/packages/${name}/${version}`;
+                    const relativePath = path.join(
+                        ...versionHref.split("/").slice(1),
+                        "source",
+                        "index.html",
+                    );
+                    let viewer;
+                    try {
+                        viewer = await page(relativePath);
+                    } catch {
+                        failures.push(
+                            `${relativePath}: page missing from the build`,
+                        );
+                        continue;
+                    }
+                    viewer.expect(
+                        shipsHidden(viewer.html, "data-source-archive") ===
+                            true,
+                        "ships the viewer hidden (JS reveals it)",
+                    );
+                    viewer.expect(
+                        viewer.content.links.some(
+                            (link) =>
+                                link.main &&
+                                link.href === versionHref &&
+                                link.text.length > 0,
+                        ),
+                        "keeps a script-less link back to the version's page",
+                    );
+                }
             }
         } else {
             // While the registry refuses anonymous catalog reads, the

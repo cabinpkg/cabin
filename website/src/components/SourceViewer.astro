@@ -1,0 +1,47 @@
+---
+// The source viewer's frame: an archive's file tree beside one file's
+// content. src/scripts/source.ts fills it - on the dashboard through
+// the session source route, on a version's public page straight from
+// the registry's static archive host.
+---
+
+<div class="grid gap-6 md:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
+    <nav
+        aria-label="Archive files"
+        class="text-sm md:max-h-[70vh] md:overflow-y-auto"
+        data-source-tree
+    >
+    </nav>
+    <section>
+        <div class="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <code class="font-mono text-sm" data-source-file></code>
+            <span class="text-xs text-ink-faint" data-source-file-size></span>
+        </div>
+        <p class="mb-2 text-sm text-ink-muted" data-source-notice hidden></p>
+        <pre
+            class="overflow-x-auto rounded-md border border-line bg-night-raised p-4 text-sm leading-relaxed"
+            data-source-pre
+            hidden><code data-source-content></code></pre>
+    </section>
+</div>
+
+<template id="source-dir-template">
+    <details open>
+        <summary
+            class="cursor-pointer select-none py-0.5 font-mono text-ink-muted"
+            data-slot="name"
+        >
+        </summary>
+        <div class="ml-2 border-l border-line pl-2" data-slot="children"></div>
+    </details>
+</template>
+<template id="source-file-template">
+    <button
+        type="button"
+        class="block w-full truncate rounded-sm px-1 py-0.5 text-left font-mono text-ink hover:text-steel"
+        data-slot="file"
+    >
+    </button>
+</template>
+
+<script src="../scripts/source.ts"></script>

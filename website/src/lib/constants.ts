@@ -19,6 +19,10 @@ export const DOCS_HIGHLIGHT_PARAM = "highlight";
 export const DOCS_URL = "/docs/";
 export const INSTALL_DOC_URL = "/docs/installation/";
 
+// The registry's static archive host: the public source viewer
+// range-reads a version's published archive there, anonymously.
+export const ARCHIVES_ORIGIN = "https://static.cabinpkg.com";
+
 export const EXTERNAL_URLS = {
     githubOrg: "https://github.com/cabinpkg",
     author: "https://github.com/ken-matsui",

@@ -1,6 +1,10 @@
 ---
 import BaseLayout from "../../layouts/BaseLayout.astro";
-import type { PackageRecord, PackageVersionListItem } from "../../lib/packages";
+import {
+    getPackageSourceHref,
+    type PackageRecord,
+    type PackageVersionListItem,
+} from "../../lib/packages";
 import IconTile from "../IconTile.astro";
 import Icon from "../Icon.astro";
 import InstallSnippet from "./InstallSnippet.astro";
@@ -41,6 +45,13 @@ const { pack, versions, currentVersion, title, description, canonicalPath } =
                 v{pack.version}
             </p>
         </div>
+        <a
+            href={getPackageSourceHref(pack.name, pack.version)}
+            class="ml-auto flex items-center gap-2 text-sm font-medium text-steel hover:text-steel-bright"
+        >
+            <Icon name="code" class="h-4 w-4" />
+            Browse files
+        </a>
     </section>
 
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">

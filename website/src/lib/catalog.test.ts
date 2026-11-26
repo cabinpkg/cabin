@@ -34,6 +34,7 @@ test("the committed fixture parses in the registry's order", () => {
         checksum: `sha256:${"9".repeat(64)}`,
     });
     assert.equal(packages[0].versions[0].upstream, null);
+    assert.equal(packages[1].versions[0].revision, "3a1b2c3d4e5f6a7b");
     assert.equal(packages[1].versions[0].license, "Zlib");
     assert.equal(packages[0].versions[1].license, "MIT OR Apache-2.0");
     assert.equal(packages[0].versions[0].license, null);
@@ -50,6 +51,19 @@ test("a document outside the catalog contract fails the build", () => {
                 schema: 1,
                 packages: [
                     { name: "a/b", latest: "2.0.0", versions: [version] },
+                ],
+            },
+        ],
+        [
+            "a version without its revision",
+            {
+                schema: 1,
+                packages: [
+                    {
+                        name: "a/b",
+                        latest: "1.0.0",
+                        versions: [{ version: "1.0.0" }],
+                    },
                 ],
             },
         ],
