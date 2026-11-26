@@ -71,7 +71,7 @@ the archives:
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `auth-required` | bool | `false` | When `true`, every request to this registry's index origin **except `config.json` itself** - package metadata and artifact downloads included - must carry `Authorization: Bearer <token>`.  Artifacts served from a `dl` on another origin are requested without it.  `config.json` stays publicly readable so `cabin login` can discover the `api` origin before any credential exists: sessions are the only credential, so a registry that authenticated its own configuration could never be logged in to.  The hosted registry serves `true` during its private alpha (see [Read routes](#read-routes)); the declaration informs clients, and the server enforces it. |
+| `auth-required` | bool | `false` | When `true`, every request to this registry's index origin **except `config.json` itself** - package metadata and artifact downloads included - must carry `Authorization: Bearer <token>`.  Artifacts served from a `dl` on another origin are requested without it, and when the field is `false` or absent the client sends the index origin no credential at all.  `config.json` stays publicly readable so `cabin login` can discover the `api` origin before any credential exists: sessions are the only credential, so a registry that authenticated its own configuration could never be logged in to.  The hosted registry serves `true` during its private alpha (see [Read routes](#read-routes)); the declaration informs clients, and the server enforces it. |
 | `api` | string | absent | Absolute base URL of the registry's API origin - on the hosted registry the **website origin** `"https://cabinpkg.com"`, following crates.io's `"api": "https://crates.io"` discipline (see [One role per hostname](#one-role-per-hostname)).  Non-`http(s)` schemes and URLs with `userinfo` credentials are rejected, and `cabin publish` and `cabin login` refuse plain `http` for a host other than loopback, as the sparse HTTP client does for the index URL.  The read routes never consult it.  When absent, `cabin publish` fails with an error naming the field: mutation requests are only ever sent to an explicitly declared API origin. |
 
 Both index parsers (the local `--index-path` loader and the sparse HTTP client) recognize the
@@ -103,8 +103,9 @@ Authorization: Bearer cabin_ses_<base64url>
 ```
 
 - Reads on the hosted registry need a token whose account the private alpha admits (see
-  [Read routes](#read-routes)).  When the client holds one for the origin it is
-  [attached](#when-the-token-is-sent); a presented token that fails to validate answers
+  [Read routes](#read-routes)).  When the client holds one for the origin and the registry
+  declares `auth-required`, it is [attached](#when-the-token-is-sent); a presented token that
+  fails to validate answers
   the uniform `401` rather than being ignored, so a rotated or revoked credential fails loudly
   instead of silently reading as anonymous.
 - During the private alpha the hosted registry admits only the GitHub accounts on its operator
@@ -144,9 +145,10 @@ whose presented token fails to validate.
 
 ## Client-side token handling
 
-Token handling is part of the stable read path: whenever a credential is available for the index
-origin, the sparse HTTP client authenticates its reads with it, and `cabin login` /
-`cabin logout` manage the stored credential.
+Token handling is part of the stable read path: when a credential is available for the index
+origin of a registry that declares [`auth-required`](#registry-configuration), the sparse HTTP
+client authenticates its reads with it, and `cabin login` / `cabin logout` manage the stored
+credential.
 
 ### `cabin login` and `cabin logout`
 
@@ -302,23 +304,25 @@ server-side anyway.  A run under GitHub Actions *without* the OIDC endpoint (the
 
 ### When the token is sent
 
-With a credential available, every request to the registry - `config.json`, package metadata, and
-artifact downloads - carries `Authorization: Bearer <token>`.  A stored token is sent to exactly
-two destinations: (a) the index origin it is stored under, and (b) the
-[`api`](#registry-configuration) origin declared by that index's authenticated `config.json`,
-where the mutation routes live - and nowhere else: a `dl` host on another origin serves its
-archives without it.  This mirrors Cargo, whose tokens go to the
-api host named in `config.json`.  The client follows no redirects: a `3xx` response fails the
+`config.json` is always requested without a credential: it is public by the protocol, and its
+[`auth-required`](#registry-configuration) field decides whether the index origin is sent one at
+all.  A stored token is sent to at most two destinations: (a) the index origin it is stored
+under, on package metadata and artifact requests, and only when that registry declares
+`auth-required`, and (b) the [`api`](#registry-configuration) origin declared by that index's
+`config.json`, where the mutation routes live - and nowhere else: a public registry's index
+serves its reads without it, and so does a `dl` host on another origin.  This mirrors Cargo,
+whose tokens go to the api host named in `config.json`.  The client follows no redirects: a `3xx` response fails the
 request.  Neither destination ever sees the token over plain `http` except loopback hosts
 (`127.0.0.0/8`, `::1`, `localhost`), which keeps local testing possible.
-The [trusted-publishing](#publishing-from-github-actions) leg is the one variation: there the
-client discovers `api` from an *unauthenticated* `config.json` read (it has no token yet) and
-presents the run's OIDC token to that origin's exchange route to obtain one.
+On the [trusted-publishing](#publishing-from-github-actions) leg the client has no token yet: it
+discovers `api` from the same `config.json` read and presents the run's OIDC token to that
+origin's exchange route to obtain one.
 `cabin publish -v` and `cabin yank -v` name the `api` URL they send the mutation to
 (`cabin: registry api = <api>`, on stderr).
-Client-side error mapping: a `401` without a stored credential advises
-`cabin login --index-url <origin>` (the actionable path to a working read); a `401` despite one
-reports the token as rejected (revoked or expired); a `403` reports a missing scope.  The
+Client-side error mapping: a `401` to a request sent without a credential advises
+`cabin login --index-url <origin>` (the actionable path to a working read); a `401` to a request
+that carried one reports the token as rejected (revoked or expired), and a `403` to such a
+request reports a missing scope.  The
 `registry_private_alpha` [code](#error-envelope) on a tokenless `401` or any `403` from a
 [read route](#read-routes), or on a `403` from the API, instead reports the hosted registry's
 private-alpha status, since no login can clear it.  On an
@@ -555,7 +559,8 @@ Client-side behavior:
   per-version metadata document ([`package-format.md`](package-format.md)).  The uploaded bytes are byte-identical to what `cabin package` writes into
   `dist/` for the same source tree.
 - `config.json` (which supplies the [`api`](#registry-configuration) origin) and the lint baseline
-  ride the read path with the publisher's token attached; the upload carries the same bearer token to the API origin,
+  ride the read path, the baseline with the publisher's token attached when the registry declares
+  `auth-required`; the upload carries the same bearer token to the API origin,
   under the same https-or-loopback cleartext rule.
 - On `201` the client reports the published name, version, checksum, and revision.  On `200` it
   reports that byte-identical bytes were already published and exits successfully - the same

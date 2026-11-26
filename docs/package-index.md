@@ -435,10 +435,10 @@ Request shape:
 | 3 | `GET <artifact-url>` | Source-archive download for each `(name, version, revision)` triple `cabin fetch` / `cabin build` needs. |
 
 The `config.json` fetched in step 1 recognizes the same optional `auth-required` / `api` / `dl`
-fields as the local loader (see [Registry-root layout](#registry-root-layout)); whenever a credential
-is stored for the index origin, every request in the table to that origin carries it, so an
-artifact served from a `dl` on another origin is requested without it - and the hosted
-registry's reads work with no credential at all
+fields as the local loader (see [Registry-root layout](#registry-root-layout)); when a credential
+is stored for the index origin and the registry declares `auth-required`, steps 2 and 3 carry it
+on requests to that origin, so an artifact served from a `dl` on another origin is requested
+without it - and the hosted registry's reads work with no credential at all
 ([`remote-registry.md`](remote-registry.md#client-side-token-handling)).
 
 Source-path resolution for each revision:

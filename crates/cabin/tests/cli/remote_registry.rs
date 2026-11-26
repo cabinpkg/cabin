@@ -1783,9 +1783,10 @@ fn a_user_config_loopback_index_still_receives_the_env_token() {
 /// Consuming a hosted-style public registry needs no account, login,
 /// or token: with no credentials configured anywhere, a scoped
 /// dependency resolves, downloads, and builds - and no request ever
-/// carries an `Authorization` header.
+/// carries an `Authorization` header, not even when a token is held
+/// for the registry's origin.
 #[test]
-fn build_scoped_package_from_a_public_registry_with_no_credentials() {
+fn build_scoped_package_from_a_public_registry_sends_no_credentials() {
     require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     let pkg_root = dir.path().join("pkg");
@@ -1870,10 +1871,22 @@ deps = ["acme/demo"]
         .arg(dir.path().join("build"))
         .assert()
         .success();
+    // The registry does not declare `auth-required`, so a token held
+    // for its origin stays home on the metadata and archive reads.
+    cabin()
+        .args(["fetch", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--index-url")
+        .arg(&url)
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache-with-token"))
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .success();
     server.unblock();
     assert!(
         !thread.join().unwrap(),
-        "a credential-less build must never send Authorization"
+        "a public registry must never be sent Authorization"
     );
 }
 
@@ -2119,9 +2132,8 @@ struct CapturedPut {
 /// (nothing is published yet), and answers mutation requests under
 /// `/api/v1/packages/` with the configured status sequence (the last
 /// entry repeats), capturing each one.  With `require_auth`, every
-/// route, `config.json` included, 401s tokenless requests; this is
-/// stricter than the protocol's `auth-required` shape, whose
-/// `config.json` stays public.
+/// route but the public `config.json` 401s tokenless requests - the
+/// protocol's `auth-required` shape.
 struct RemoteRegistryServer {
     server: std::sync::Arc<tiny_http::Server>,
     thread: Option<std::thread::JoinHandle<()>>,
@@ -2201,7 +2213,7 @@ impl RemoteRegistryServer {
         let thread = std::thread::spawn(move || {
             while let Ok(mut req) = server_for_thread.recv() {
                 let path = req.url().to_owned();
-                if require_auth {
+                if require_auth && path != "/config.json" {
                     let authorized = req.headers().iter().any(|h| {
                         h.field.equiv("Authorization") && h.value == format!("Bearer {TEST_TOKEN}")
                     });
@@ -2550,8 +2562,8 @@ fn publish_uploads_bytes_identical_to_cabin_package() {
 
 /// The credential-destination rule (`docs/remote-registry.md`,
 /// "When the token is sent"): a token stored under the index origin is
-/// sent to that origin's reads *and* to the `api` origin its
-/// authenticated `config.json` declares - here a different server, the
+/// sent to that `auth-required` origin's reads *and* to the `api`
+/// origin its `config.json` declares - here a different server, the
 /// hostname-role split's shape - and the mutation reaches only the api
 /// origin, never the index origin.
 #[test]

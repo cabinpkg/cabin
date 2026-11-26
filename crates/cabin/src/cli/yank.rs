@@ -70,8 +70,8 @@ pub(crate) fn yank(
         );
     }
 
-    // Mirror the remote publish flow: one credential lookup serves
-    // the config.json read and the API call alike.  Not the
+    // The credential serves the API call alone; `config.json` is
+    // read without one.  Not the
     // trusted-publishing exchange (`cli::trustpub`): the registry
     // mints exchanged tokens with only the `publish` scope, so an
     // auto-exchange here would trade a working stored yank credential
@@ -101,13 +101,7 @@ pub(crate) fn yank(
             reporter,
         )?;
     }
-    let mut client = cabin_index_http::HttpClient::new();
-    if let Some(token) = token.clone() {
-        client = client.with_auth(cabin_index_http::RegistryAuth::for_index_url(
-            &index_url, token,
-        )?);
-    }
-    let index = cabin_index_http::HttpIndex::open(&index_url, client)?;
+    let index = cabin_index_http::HttpIndex::open(&index_url, cabin_index_http::HttpClient::new())?;
     let Some(api) = index.api() else {
         bail!(
             "registry `{origin}` does not declare an `api` URL in its config.json; yanking needs \
