@@ -327,7 +327,7 @@ runs the `--dry-run` preflight with no secrets, on Linux, macOS, and Windows (`c
 Cabin commit the tool is pinned to.  That pin moves only when a ports maintainer adopts a newer
 Cabin commit through such a pull request (that repository's `docs/maintaining.md`, "Cabin
 revision").  A change that only adds new package names, editing at most the files "Selective
-dry-runs" there names (documentation such as `README.md`, and `publish-holds.txt`) besides,
+dry-runs" there names (documentation such as `README.md`) besides,
 preflights every version of those names and their dependency closure.  A change that only edits
 those files preflights nothing.  Any other change preflights the whole catalog: a new
 version of an existing port, any edit under an existing port, the Cabin pin, the tooling, or
@@ -336,8 +336,11 @@ full-catalog dry-run - its scheduled real-upstream example tests and benchmarks 
 they use - so a Cabin change is checked against every port only once that pin adopts it: a green
 Cabin CI run promises nothing about building every port.
 Only `main` publishes, through `publish.yml`, and only to `https://registry.cabinpkg.com` (a run
-on any other ref publishes nothing).  A dispatch in its default mode publishes the whole set, so a
-correction to an already-published port reaches the registry at the next such dispatch - and the
+on any other ref publishes nothing).  Nothing uploads unless that repository's
+`PORTS_PUBLISH_ENABLED` variable is exactly `true`: otherwise a dispatch that would upload fails
+and a schedule uploads nothing (its `docs/publishing.md`, "Enabling and disabling").  A dispatch in
+its default mode publishes the whole set, so a correction to an already-published port reaches
+the registry at the next such dispatch - and the
 same dispatch is the recovery path after a pre-launch registry wipe.  While that repository's
 `PORTS_AUTO_PUBLISH` variable is `true`, a schedule also uploads versions that have not been
 uploaded yet, never a packaging revision (that repository's `docs/publishing.md`, "Automatic
