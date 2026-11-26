@@ -892,8 +892,8 @@ api-url = "{base}"
 }
 
 /// The registry's mint endpoint refuses with its deliberately
-/// uniform 401: login fails with the uniform-refusal wording and
-/// stores nothing.
+/// uniform 401: login fails with the uniform-refusal wording, which
+/// says what creates the account a login needs, and stores nothing.
 #[test]
 fn login_reports_the_uniform_mint_refusal() {
     let dir = TempDir::new().unwrap();
@@ -911,7 +911,9 @@ fn login_reports_the_uniform_mint_refusal() {
         .failure();
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
     assert!(
-        flat_contains(&stderr, "refused the session request"),
+        flat_contains(&stderr, "refused the session request")
+            && flat_contains(&stderr, "signing in on the registry's website does")
+            && flat_contains(&stderr, "at least 90 days old"),
         "expected the uniform-refusal wording in: {stderr}"
     );
     assert!(!home.join("credentials.toml").exists());

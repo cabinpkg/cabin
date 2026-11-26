@@ -1275,8 +1275,11 @@ pub enum RegistryApiError {
 
     #[error(
         "registry API `{origin}` refused the session request; the refusal is deliberately \
-         uniform - for a login, check that the GitHub account has signed in to the registry and \
-         is admitted; for a revocation, the session was likely already expired or revoked"
+         uniform - for a login, check that the GitHub account is admitted and already has a \
+         registry account: `cabin login` does not create one, signing in on the registry's \
+         website does, and the hosted registry accepts that sign-in only from a GitHub account \
+         at least 90 days old; for a revocation, the session was likely already expired or \
+         revoked"
     )]
     SessionRefused { origin: String },
 

@@ -181,6 +181,13 @@ the same way: an expired session is replaced by running `cabin login` again, not
 What is stored is the minted `cabin_ses_` token, its expiry, and the `api` origin it was minted
 for.
 
+`cabin login` signs in to a registry account that already exists and never creates one.  The
+first sign-in on the registry's website creates the account.  For a GitHub account the hosted
+registry admits, it accepts that sign-in only once the GitHub account is at least 90 days old -
+a younger one is refused and told a UTC date from which it will be accepted - and a
+`cabin login` before the account exists gets the uniform refusal described under
+[minting](#minting-a-session-token).
+
 The credential commands consult *user-level* config only: a checked-out project's
 `.cabin/config.toml` (registry selection or `[source-replacement]`) must not be able to steer
 where a minted credential is stored.  Login refuses a plain-`http` origin beyond loopback up
@@ -1016,7 +1023,9 @@ The registry proves the identity with one call to GitHub's
 [check-token endpoint](https://docs.github.com/en/rest/apps/oauth-applications#check-a-token),
 authenticated with its own OAuth client credentials, and resolves the numeric GitHub id exactly
 as the web sign-in does - the allowlist gate included - except that no account is ever created:
-minting is for accounts that already exist, so an unknown or unadmitted identity refuses.
+minting is for accounts that already exist
+([the web sign-in creates them](#cabin-login-and-cabin-logout)), so an unknown or unadmitted
+identity refuses.
 Signing in grants nothing by itself: during the hosted registry's private alpha a GitHub
 account the allowlist does not name is refused here, whatever it proves.
 Check-token also pins the credential to the registry's own OAuth app: a token issued by any
