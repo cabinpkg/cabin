@@ -14,11 +14,15 @@ import {
     type ArchiveLayout,
     buildTree,
     decodeText,
+    inflatePrefix,
+    isRequestedSpan,
     MAX_DISPLAY_BYTES,
     MAX_REQUEST_BYTES,
+    matchesEntry,
     parseCentralDirectory,
     parseContentRange,
     parseEocd,
+    readExactly,
     TAIL_BYTES,
     type TreeDirectory,
 } from "../lib/sourceArchive.ts";
@@ -44,38 +48,59 @@ interface Slice {
 
 type SliceResult = { ok: true; slice: Slice } | { ok: false; status: number };
 
-// One ranged read. Anything but a coherent 206 - including a body that
-// disagrees with its own Content-Range - reports a failure; status 0
-// stands for "unreachable or incoherent".
-async function fetchRange(range: string): Promise<SliceResult> {
+// The archive's size, learned from the first read; every later response
+// must report the same one.
+let archiveSize: number | null = null;
+
+// One ranged read: `length` bytes at `first`, or the archive's last
+// `length` bytes when `first` is null. Anything but a 206 for exactly
+// that span - or a body that disagrees with its own Content-Range -
+// reports a failure; status 0 stands for "unreachable or incoherent".
+async function fetchRange(
+    first: number | null,
+    length: number,
+): Promise<SliceResult> {
     let response: Response;
     try {
         response = await fetch(sourceUrl, {
             credentials: "same-origin",
-            headers: { Range: range },
+            headers: {
+                Range:
+                    first === null
+                        ? `bytes=-${length}`
+                        : `bytes=${first}-${first + length - 1}`,
+            },
         });
     } catch {
         return { ok: false, status: 0 };
     }
-    if (response.status !== 206) {
-        return { ok: false, status: response.status };
-    }
-    const span = parseContentRange(response.headers.get("Content-Range"));
-    if (!span) {
-        return { ok: false, status: 0 };
+    const span =
+        response.status === 206
+            ? parseContentRange(response.headers.get("Content-Range"))
+            : null;
+    if (!span || !isRequestedSpan(span, first, length, archiveSize)) {
+        // Not the bytes that were asked for - a 200 would be the whole
+        // archive - so the body is dropped unread.
+        void response.body?.cancel();
+        return {
+            ok: false,
+            status: response.status === 206 ? 0 : response.status,
+        };
     }
     // The connection can still fail while the body streams in; that is
     // the same "unreachable" outcome as a failed fetch.
-    let buffer: ArrayBuffer;
+    let bytes: Uint8Array<ArrayBuffer> | null;
     try {
-        buffer = await response.arrayBuffer();
+        bytes =
+            response.body &&
+            (await readExactly(response.body, span.last - span.first + 1));
     } catch {
         return { ok: false, status: 0 };
     }
-    const bytes = new Uint8Array(buffer);
-    if (bytes.length !== span.last - span.first + 1) {
+    if (!bytes) {
         return { ok: false, status: 0 };
     }
+    archiveSize = span.size;
     return { ok: true, slice: { bytes, size: span.size } };
 }
 
@@ -84,60 +109,20 @@ async function fetchRange(range: string): Promise<SliceResult> {
 // cap: compression level is producer-only, so a valid stream can be
 // arbitrarily inefficient.
 async function fetchSpan(start: number, length: number): Promise<SliceResult> {
-    const parts: Uint8Array<ArrayBuffer>[] = [];
+    const bytes = new Uint8Array(length);
     let size = 0;
-    for (let at = start; at < start + length; at += MAX_REQUEST_BYTES) {
-        const end = Math.min(at + MAX_REQUEST_BYTES, start + length);
-        const result = await fetchRange(`bytes=${at}-${end - 1}`);
+    for (let at = 0; at < length; at += MAX_REQUEST_BYTES) {
+        const result = await fetchRange(
+            start + at,
+            Math.min(MAX_REQUEST_BYTES, length - at),
+        );
         if (!result.ok) {
             return result;
         }
-        if (result.slice.bytes.length !== end - at) {
-            return { ok: false, status: 0 };
-        }
-        parts.push(result.slice.bytes);
+        bytes.set(result.slice.bytes, at);
         size = result.slice.size;
     }
-    const bytes = new Uint8Array(length);
-    let at = 0;
-    for (const part of parts) {
-        bytes.set(part, at);
-        at += part.length;
-    }
     return { ok: true, slice: { bytes, size } };
-}
-
-// Decompresses a deflate-raw span, stopping shortly after `maxBytes`
-// of output: enough to know the content was truncated without ever
-// materializing a decompression bomb.
-async function inflatePrefix(
-    compressed: Uint8Array<ArrayBuffer>,
-    maxBytes: number,
-): Promise<Uint8Array> {
-    const stream = new Blob([compressed])
-        .stream()
-        .pipeThrough(new DecompressionStream("deflate-raw"));
-    const reader = stream.getReader();
-    const parts: Uint8Array[] = [];
-    let total = 0;
-    while (total <= maxBytes) {
-        const { done, value } = await reader.read();
-        if (done) {
-            break;
-        }
-        parts.push(value);
-        total += value.length;
-    }
-    if (total > maxBytes) {
-        await reader.cancel();
-    }
-    const bytes = new Uint8Array(total);
-    let at = 0;
-    for (const part of parts) {
-        bytes.set(part, at);
-        at += part.length;
-    }
-    return bytes;
 }
 
 interface FileView {
@@ -177,18 +162,16 @@ async function viewFile(root: HTMLElement, entry: ArchiveEntry): Promise<void> {
             renderFileView(root, view);
         }
     };
-    if (entry.method !== 0 && entry.method !== 8) {
+    if (
+        (entry.method !== 0 && entry.method !== 8) ||
+        (entry.method === 0 && entry.csize !== entry.usize)
+    ) {
         finish({
             notice: "This entry is outside the archive profile.",
             content: null,
         });
         return;
     }
-    if (entry.csize === 0 || entry.usize === 0) {
-        finish({ notice: "This file is empty.", content: null });
-        return;
-    }
-
     // Stored entries are their own content, so only the displayed
     // prefix is fetched; deflate must decompress from the start, so its
     // whole compressed span is fetched (bounded by the archive-size
@@ -219,15 +202,18 @@ async function viewFile(root: HTMLElement, entry: ArchiveEntry): Promise<void> {
         }
     }
 
-    const truncated =
-        entry.usize > MAX_DISPLAY_BYTES || bytes.length > MAX_DISPLAY_BYTES;
-    if (!truncated && bytes.length !== entry.usize) {
+    if (!matchesEntry(entry, bytes)) {
         finish({
-            notice: "This entry's data disagrees with its declared size.",
+            notice: "This entry's data disagrees with its declared size or checksum.",
             content: null,
         });
         return;
     }
+    if (bytes.length === 0) {
+        finish({ notice: "This file is empty.", content: null });
+        return;
+    }
+    const truncated = bytes.length > MAX_DISPLAY_BYTES;
     const text = decodeText(bytes.subarray(0, MAX_DISPLAY_BYTES), truncated);
     if (text === null) {
         finish({
@@ -320,7 +306,7 @@ bootAccountShell(async (shell) => {
     setText(shell.root, "[data-source-package]", packageName);
     setText(shell.root, "[data-source-version]", version);
 
-    const tail = await fetchRange(`bytes=-${TAIL_BYTES}`);
+    const tail = await fetchRange(null, TAIL_BYTES);
     if (!tail.ok) {
         if (tail.status === 401) {
             shell.show("signed-out");
