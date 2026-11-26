@@ -2,6 +2,6 @@
   "name": "cabin-api-worker",
   "private": true,
   "dependencies": {
-    "wrangler": "4.156.0"
+    "wrangler": "4.158.0"
   }
 }
