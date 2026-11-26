@@ -25,6 +25,9 @@ export interface Quotas {
     max_new_packages_per_day: number;
     max_packages_total: number;
     max_versions_per_package_per_day: number;
+    max_upload_bytes_per_day: number;
+    max_uploads_per_day: number;
+    max_pending_uploads: number;
     max_scope_claims_total: number;
     publish_burst: number;
     publish_refill_per_minute: number;
@@ -39,7 +42,10 @@ export interface Usage {
     // flow's refusal is deliberately uniform).
     scope_claims: number;
     stored_bytes: number;
-    published_today: number;
+    // What the daily upload allowance has been charged this UTC day:
+    // an admitted upload stays charged whatever becomes of it.
+    uploads_today: { bytes: number; count: number };
+    // `pending` is what `max_pending_uploads` bounds.
     versions: { verified: number; pending: number; rejected: number };
     quotas: Quotas;
 }

@@ -37,8 +37,6 @@ function setBar(
     }
 }
 
-// Only the metrics with a matching quota get a progress bar;
-// published_today has no compatible denominator in the usage payload.
 function renderUsage(root: HTMLElement, usage: Usage): void {
     setText(root, "[data-usage-packages]", String(usage.package_count));
     setText(
@@ -76,13 +74,40 @@ function renderUsage(root: HTMLElement, usage: Usage): void {
         usage.scope_claims,
         usage.quotas.max_scope_claims_total,
     );
+    setText(root, "[data-usage-uploads]", String(usage.uploads_today.count));
     setText(
         root,
-        "[data-usage-published-today]",
-        String(usage.published_today),
+        "[data-usage-uploads-quota]",
+        `of ${usage.quotas.max_uploads_per_day}`,
+    );
+    setBar(
+        root,
+        "[data-usage-uploads-bar]",
+        usage.uploads_today.count,
+        usage.quotas.max_uploads_per_day,
+    );
+    setText(
+        root,
+        "[data-usage-upload-bytes]",
+        formatBytes(usage.uploads_today.bytes),
+    );
+    setText(
+        root,
+        "[data-usage-upload-bytes-quota]",
+        `of ${formatBytes(usage.quotas.max_upload_bytes_per_day)}`,
+    );
+    setBar(
+        root,
+        "[data-usage-upload-bytes-bar]",
+        usage.uploads_today.bytes,
+        usage.quotas.max_upload_bytes_per_day,
     );
     setText(root, "[data-usage-verified]", String(usage.versions.verified));
-    setText(root, "[data-usage-pending]", String(usage.versions.pending));
+    setText(
+        root,
+        "[data-usage-pending]",
+        `${usage.versions.pending} of ${usage.quotas.max_pending_uploads}`,
+    );
     setText(root, "[data-usage-rejected]", String(usage.versions.rejected));
 }
 

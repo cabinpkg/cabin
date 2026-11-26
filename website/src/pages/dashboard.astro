@@ -74,9 +74,34 @@ const searchInputClass =
                     </div>
                 </Card>
                 <Card class="p-5">
-                    <p class="spec-label">Published today</p>
-                    <p class={statClass} data-usage-published-today></p>
-                    <p class={quotaClass}>versions published this UTC day</p>
+                    <p class="spec-label">Uploads today</p>
+                    <p class={statClass} data-usage-uploads></p>
+                    <p class={quotaClass} data-usage-uploads-quota></p>
+                    <div
+                        class={barClass}
+                        role="progressbar"
+                        aria-label="Uploads today against the daily allowance"
+                        aria-valuemin="0"
+                        aria-valuemax="100"
+                        data-usage-uploads-bar
+                    >
+                        <div class="h-full w-0 bg-steel" data-fill></div>
+                    </div>
+                </Card>
+                <Card class="p-5">
+                    <p class="spec-label">Uploaded today</p>
+                    <p class={statClass} data-usage-upload-bytes></p>
+                    <p class={quotaClass} data-usage-upload-bytes-quota></p>
+                    <div
+                        class={barClass}
+                        role="progressbar"
+                        aria-label="Bytes uploaded today against the daily allowance"
+                        aria-valuemin="0"
+                        aria-valuemax="100"
+                        data-usage-upload-bytes-bar
+                    >
+                        <div class="h-full w-0 bg-steel" data-fill></div>
+                    </div>
                 </Card>
                 <Card class="p-5">
                     <p class="spec-label">Downloads</p>
@@ -101,6 +126,11 @@ const searchInputClass =
                     </dl>
                 </Card>
             </div>
+            <p class="mt-4 text-xs text-ink-faint">
+                The daily upload allowances reopen at 00:00 UTC, and an upload
+                stays charged to its day whatever becomes of it. The registry's
+                shared daily capacity bounds uploads as well.
+            </p>
         </section>
 
         <section class="mb-10" aria-labelledby="search-heading">
