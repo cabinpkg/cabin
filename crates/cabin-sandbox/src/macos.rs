@@ -14,8 +14,9 @@
 //! signals to and task ports of processes
 //! outside the sandbox (a program signed to debug would read their
 //! memory), which processes there are and what the system tells of one
-//! outside the sandbox (where each file it has open or mapped lies, among
-//! it), and what reaches outside it: shared memory and semaphores,
+//! outside the sandbox (where each file it has open or mapped lies, and
+//! the command line and environment it was started with, among it), and
+//! what reaches outside it: shared memory and semaphores,
 //! launchd jobs, Apple events, `open`, and every Mach service but
 //! logging, notifications, and user lookup (daemons such as the
 //! keychain's or the DNS resolver would otherwise act on the program's
@@ -29,7 +30,11 @@
 //! place of a writable directory itself.  Of two rules for one operation
 //! the later wins, and a rule naming an operation outranks one that covers
 //! it by wildcard wherever it stands, so the last deny names the metadata
-//! too.  Paths are passed as `-D` parameters, never spliced into the
+//! too.  The `sysctl(3)` rule for `kern.procargs` names no process and
+//! works only beside the `process-info*` rules: with both, the system
+//! refuses what a process outside the sandbox was started with and still
+//! answers about one inside it; with either alone, it answers about every
+//! process.  Paths are passed as `-D` parameters, never spliced into the
 //! profile text.
 
 use std::collections::BTreeSet;
@@ -170,6 +175,7 @@ fn profile(
 (allow mach-priv-task-port (target same-sandbox))
 (deny process-info*)
 (allow process-info* (target same-sandbox))
+(deny sysctl-read (sysctl-name-prefix "kern.proc.") (sysctl-name-prefix "kern.procargs"))
 (deny mach-lookup)
 (allow mach-lookup (global-name "com.apple.system.logger")
   (global-name "com.apple.system.notification_center")

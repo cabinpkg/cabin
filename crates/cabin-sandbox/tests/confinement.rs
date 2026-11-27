@@ -397,6 +397,26 @@ mod enforced {
                 let len = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), 4096) };
                 report(verb, errno(if len > 0 { 0 } else { -1 }));
             }
+            // Ask what process `arg`, or this one (`self`), was started
+            // with: its command line and environment.
+            #[cfg(target_os = "linux")]
+            "started" => {
+                let started = std::fs::read(format!("/proc/{arg}/environ"));
+                report(verb, started.map(drop));
+            }
+            #[cfg(target_os = "macos")]
+            "started" => {
+                // SAFETY: plain system call.
+                let pid = arg.parse().unwrap_or_else(|_| unsafe { libc::getpid() });
+                let mut started = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
+                report(verb, sysctl_size(&mut started));
+            }
+            // Ask which processes there are.
+            #[cfg(target_os = "macos")]
+            "processes" => {
+                let mut all = [libc::CTL_KERN, libc::KERN_PROC, libc::KERN_PROC_ALL];
+                report(verb, sysctl_size(&mut all));
+            }
             #[cfg(target_os = "macos")]
             "mach" => println!("mach: {}", mach_lookup(arg)),
             #[cfg(target_os = "macos")]
@@ -620,6 +640,15 @@ mod enforced {
                 task_read_for_pid(mach_task_self_, pid, &raw mut port),
             ]
         }
+    }
+
+    /// Ask the system how much it has to tell under `name`.
+    #[cfg(target_os = "macos")]
+    fn sysctl_size(name: &mut [libc::c_int]) -> std::io::Result<()> {
+        let (mut size, len) = (0, u32::try_from(name.len()).unwrap());
+        let (none, null) = (std::ptr::null_mut(), std::ptr::null_mut());
+        // SAFETY: `name` holds `len` integers, and `size` receives a size.
+        errno(unsafe { libc::sysctl(name.as_mut_ptr(), len, none, &raw mut size, null, 0) })
     }
 
     /// `bootstrap_look_up`'s status for the Mach service `name`.
@@ -2063,6 +2092,31 @@ mod enforced {
         };
         assert_eq!(asked(&std::process::id().to_string()), "PermissionDenied");
         assert_eq!(asked("self"), "ok");
+    }
+
+    /// What a process was started with holds every secret its
+    /// environment did: a registry token Cabin was given, for one.
+    #[cfg(unix)]
+    #[test]
+    fn what_processes_outside_the_sandbox_were_started_with_is_out_of_reach() {
+        let me = format!("started:{}", std::process::id());
+        let unconfined = probe_command(&me).output().unwrap();
+        assert!(String::from_utf8_lossy(&unconfined.stdout).contains("started: ok"));
+        let asked = |action: &str| {
+            let probed = confine(action, &[], &[]).unwrap();
+            probed.outcome("started").to_owned()
+        };
+        assert_eq!(asked(&me), "PermissionDenied");
+        assert_eq!(asked("started:self"), "ok");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn processes_outside_the_sandbox_are_not_listed() {
+        let unconfined = probe_command("processes").output().unwrap();
+        assert!(String::from_utf8_lossy(&unconfined.stdout).contains("processes: ok"));
+        let probed = confine("processes", &[], &[]).unwrap();
+        assert_eq!(probed.outcome("processes"), "PermissionDenied");
     }
 
     /// Any program may sign itself to debug, and then read the memory of

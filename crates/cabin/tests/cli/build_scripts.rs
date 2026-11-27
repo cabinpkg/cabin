@@ -577,8 +577,18 @@ fn a_build_script_reaches_neither_its_package_nor_credentials() {
     require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     let script = r#"#define _CRT_SECURE_NO_WARNINGS
+#if defined(__linux__)
+#define _POSIX_C_SOURCE 200809L
+#endif
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#if defined(__APPLE__)
+#include <sys/sysctl.h>
+#endif
+#if defined(__APPLE__) || defined(__linux__)
+#include <unistd.h>
+#endif
 
 static int opens(const char *root, const char *name, const char *mode) {
     char path[4096];
@@ -586,6 +596,31 @@ static int opens(const char *root, const char *name, const char *mode) {
     snprintf(path, sizeof path, "%s/%s", root, name);
     if ((file = fopen(path, mode))) fclose(file);
     return file != NULL;
+}
+
+/* Whether the environment Cabin itself was started with holds the token. */
+static int finds_cabins_token(void) {
+    static char started[1 << 20];
+    const char *token = "CABIN_REGISTRY_TOKEN=secret";
+    size_t size = 0, at;
+#if defined(__APPLE__)
+    /* The size is asked first: the system refuses a buffer longer than ARG_MAX. */
+    int name[3] = {CTL_KERN, KERN_PROCARGS2, getppid()};
+    if (sysctl(name, 3, NULL, &size, NULL, 0) != 0 || size > sizeof started
+        || sysctl(name, 3, started, &size, NULL, 0) != 0)
+        size = 0;
+#elif defined(__linux__)
+    char path[64];
+    FILE *file;
+    snprintf(path, sizeof path, "/proc/%d/environ", (int)getppid());
+    if ((file = fopen(path, "r"))) {
+        size = fread(started, 1, sizeof started, file);
+        fclose(file);
+    }
+#endif
+    for (at = 0; at + strlen(token) <= size; at++)
+        if (!memcmp(started + at, token, strlen(token))) return 1;
+    return 0;
 }
 
 int main(void) {
@@ -598,7 +633,7 @@ int main(void) {
     fprintf(file, "define app WROTE_MANIFEST=%d\n", opens(root, "cabin.toml", "a"));
     fprintf(file, "define app SAW_SECRET=%d\n",
             getenv("CABIN_REGISTRY_TOKEN") || getenv("GITHUB_TOKEN") || getenv("SSH_AUTH_SOCK")
-                || getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN"));
+                || getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN") || finds_cabins_token());
     return fclose(file) != 0;
 }
 "#;

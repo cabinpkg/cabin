@@ -46,9 +46,7 @@
 //!   directory exists, a [`Confinement::hidden`] one excepted; in a
 //!   directory leading to a granted path, a path that is missing is
 //!   refused like one that is there.
-//!   The program can read the command line and environment any
-//!   process of its user was started with (`sysctl` `KERN_PROCARGS2`),
-//!   which Seatbelt cannot deny.  A process that leaves the program's
+//!   A process that leaves the program's
 //!   process group (`setsid(2)`, `setpgid(2)`) escapes the final kill, as
 //!   does everything when Cabin itself is killed outright; it stays
 //!   confined.  `DYLD_*` variables never reach the program, because the
