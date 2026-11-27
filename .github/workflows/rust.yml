@@ -46,19 +46,20 @@ jobs:
         with:
           persist-credentials: false
 
-      - parallel:
-        - uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
-          with:
-            cache: ${{ needs.changes.outputs.rust == 'true' }}
-            # Restore-only: rust-cache.yml seeds every rust.yml key on main.
-            cache-shared-key: debug-ubuntu-24.04
-            cache-bin: false
-            cache-save-if: false
-            rustflags: ""
+      # Not a `parallel:` group: the runner can fail a step that starts while
+      # a sibling sets the job's environment ("Collection was modified").
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
+        with:
+          cache: ${{ needs.changes.outputs.rust == 'true' }}
+          # Restore-only: rust-cache.yml seeds every rust.yml key on main.
+          cache-shared-key: debug-ubuntu-24.04
+          cache-bin: false
+          cache-save-if: false
+          rustflags: ""
 
-        - uses: uncenter/setup-taplo@b18c8c8302695fe63d6853bc004006215ac52b91 # v2
-          with:
-            version: "0.10.0"
+      - uses: uncenter/setup-taplo@b18c8c8302695fe63d6853bc004006215ac52b91 # v2
+        with:
+          version: "0.10.0"
 
       - parallel:
         - name: Check Rust formatting
