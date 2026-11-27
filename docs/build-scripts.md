@@ -331,11 +331,8 @@ Limits to know:
   script of a package kept elsewhere can read the package's neighbors and the build directory.
   The root's entries named above stay unreadable on every platform; a `.git` or `build` deeper in
   the package is read like any other directory.
-- **macOS does not hide other processes' environments.**  A script there can read the command
-  line and environment every process of yours was started with, Cabin's included, so a token in
-  the environment you run Cabin with is within its reach.  A program a script starts that leaves
-  the script's process group outlives the run, still confined, and can write `CABIN_OUT_DIR` after
-  Cabin has checked it.
+- On macOS a program a script starts that leaves the script's process group outlives the run,
+  still confined, and can write `CABIN_OUT_DIR` after Cabin has checked it.
 - On Linux a script can see whether any path exists, with its size and times, change the mode,
   times, and extended attributes of any file you own, and read every process's command line.
   Before Linux 6.12 it can signal any process of yours.  On Windows it can see whether any path
