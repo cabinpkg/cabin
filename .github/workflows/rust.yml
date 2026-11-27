@@ -150,6 +150,60 @@ jobs:
         env:
           RUST_BACKTRACE: "1"
 
+  # TEMPORARY PROBE, never merge: repeat the build-script tests on the
+  # Windows runners until a pass fails.
+  probe:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 80
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-2025-vs2026, leg: module-1, filter: "build_scripts::" }
+          - { os: windows-2025-vs2026, leg: module-2, filter: "build_scripts::" }
+          - { os: windows-2025-vs2026, leg: module-3, filter: "build_scripts::" }
+          - { os: windows-2025-vs2026, leg: full-1, filter: "" }
+          - { os: windows-2025-vs2026, leg: full-2, filter: "" }
+          - { os: windows-2025-vs2026, leg: alone-1, filter: "build_scripts::a_build_script_builds_a_library_with_the_builds_own_tools" }
+          - { os: windows-11-vs2026-arm, leg: module-1, filter: "build_scripts::" }
+          - { os: windows-11-vs2026-arm, leg: full-1, filter: "" }
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
+        with:
+          cache-shared-key: debug-${{ matrix.os }}
+          cache-bin: false
+          cache-save-if: false
+          rustflags: ""
+      - name: Set up MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1.13.0
+      - name: Build the tests
+        run: cargo test -p cabinpkg --test cli --all-features --locked --no-run
+      - name: Repeat (${{ matrix.leg }})
+        env:
+          RUST_BACKTRACE: "1"
+          PROBE_FILTER: ${{ matrix.filter }}
+        run: |
+          $deadline = (Get-Date).AddMinutes(45)
+          $passes = 0
+          $failures = 0
+          while ((Get-Date) -lt $deadline) {
+            $passes++
+            if ($env:PROBE_FILTER) {
+              cargo test -p cabinpkg --test cli --all-features --locked -- $env:PROBE_FILTER
+            } else {
+              cargo test -p cabinpkg --test cli --all-features --locked
+            }
+            if ($LASTEXITCODE -ne 0) {
+              $failures++
+              Write-Output "::error::PROBE pass $passes failed"
+            }
+          }
+          Write-Output "PROBE passes=$passes failures=$failures"
+          if ($failures -ne 0) { exit 1 }
+
   # The fuzz workspace on its own pinned nightly (fuzz/README.md).
   # `build-and-test-required` gates on it too.
   fuzz:

@@ -1546,8 +1546,12 @@ const char *greet(void) { return "built by the script"; }
 #include <stdlib.h>
 #include <string.h>
 
+#include <errno.h>
+
 #ifdef _WIN32
+#include <io.h>
 #include <process.h>
+#define dup2 _dup2
 #else
 #include <sys/wait.h>
 #include <unistd.h>
@@ -1585,6 +1589,10 @@ int main(void) {
     int msvc = strcmp(getenv("CABIN_TARGET_DIALECT"), "msvc") == 0;
     char object[4096], library[4096], object_flag[4100], library_flag[4100];
     FILE *file;
+    int status;
+    /* The Microsoft tools report errors on standard output, and Cabin
+       shows the end of a failed script's standard error. */
+    dup2(2, 1);
     if (!cc || !ar) return 1;
     snprintf(object, sizeof object, "%s/greet.%s", out, msvc ? "obj" : "o");
     snprintf(library, sizeof library, "%s/%s", out, msvc ? "greet.lib" : "libgreet.a");
@@ -1596,11 +1604,27 @@ int main(void) {
         const char *const lib[] = {"ar", "/nologo", library_flag, object, NULL};
         const char *const compile[] = {"cc", "-c", "vendor/greet.c", "-o", object, NULL};
         const char *const archive[] = {"ar", "rcs", library, object, NULL};
-        if (run(cc, msvc ? cl : compile) != 0 || run(ar, msvc ? lib : archive) != 0) return 1;
+        errno = 0;
+        if ((status = run(cc, msvc ? cl : compile)) != 0) {
+            fprintf(stderr, "PROBE %s: status %d (0x%x), errno %d (%s)\n", cc, status, (unsigned)status, errno, strerror(errno));
+            return 1;
+        }
+        errno = 0;
+        if ((status = run(ar, msvc ? lib : archive)) != 0) {
+            fprintf(stderr, "PROBE %s: status %d (0x%x), errno %d (%s)\n", ar, status, (unsigned)status, errno, strerror(errno));
+            return 1;
+        }
     }
-    if (!(file = fopen(getenv("CABIN_RESULT_FILE"), "w"))) return 1;
+    if (!(file = fopen(getenv("CABIN_RESULT_FILE"), "w"))) {
+        fprintf(stderr, "PROBE result file: errno %d (%s)\n", errno, strerror(errno));
+        return 1;
+    }
     fprintf(file, "external greet\nlink-file greet %s\n", library);
-    return fclose(file) != 0;
+    if (fclose(file) != 0) {
+        fprintf(stderr, "PROBE result close: errno %d (%s)\n", errno, strerror(errno));
+        return 1;
+    }
+    return 0;
 }
 "#,
         )
